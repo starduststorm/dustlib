@@ -1,0 +1,26 @@
+{
+  "name": "dustlib",
+  "version": "0.0.1",
+  "description": "Tools for structuring led art projects and animating pretty colors onto pixels",
+  "keywords": "led art",
+  "repository":
+  {
+    "type": "git",
+    "url": "git@github.com:starduststorm/dustlib.git"
+  },
+  "authors":
+  [
+    {
+      "name": "Opal Holley",
+      "email": "lumin@escent.email",
+      "url": "",
+      "maintainer": true
+    }
+  ],
+  "license": "",
+  "homepage": "",
+  "dependencies": {
+  },
+  "frameworks": "*",
+  "platforms": "*"
+}
