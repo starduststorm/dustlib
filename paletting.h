@@ -242,6 +242,10 @@ public:
       belowMinBrightness = paletteHasColorBelowThreshold(*palettePtr, minBrightness);
       colorJump = paletteColorJump(*palettePtr);
       tries++;
+      if (tries > 2*gGradientPaletteCount) {
+        logf("Giving up choosing an acceptable palette; minBrightness=%i, maxColorJump=%i", minBrightness, maxColorJump);
+        break;
+      }
     }
     logf("  Picked Palette %u, %i tries", choice, tries);
   }
