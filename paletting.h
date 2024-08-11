@@ -289,10 +289,6 @@ private:
   PaletteManager<PaletteType> manager;
   PaletteType currentPalette;
   PaletteType targetPalette;
-protected:
-  uint16_t *colorIndexes = NULL;
-private:
-  uint8_t colorIndexCount = 0;
 
   void assignPalette(PaletteType* palettePr) {
     manager.getRandomPalette(palettePr, minBrightness, maxColorJump);
@@ -304,13 +300,8 @@ public:
   uint8_t minBrightness = 0;
   uint8_t maxColorJump = 0xFF;
   bool pauseRotation = false;
-  bool mirrorTrackedColors; // uses a mod 0x200 colorIndex as input
   
   PaletteRotation(int minBrightness=0) : minBrightness(minBrightness) { }
-
-  virtual ~PaletteRotation() {
-    delete [] colorIndexes;
-  }
   
   void paletteRotationTick() {
     if (lastPaletteChange == 0) {
@@ -381,51 +372,10 @@ public:
     return getMirroredPaletteColor(getPalette(), n, brightness, outColorIndex);
   }
 
-  CRGB getTrackedColor(uint8_t n, uint8_t shiftBy=1, uint8_t *colorIndex=NULL) {
-    assert(n < colorIndexCount, "getTrackedColor: index (%u) must be less than tracked color count (%u)", n, colorIndexCount);
-    if (n >= colorIndexCount) {
-      return CRGB::Black;
-    }
+  CRGB getShiftingPaletteColor(uint16_t phase, int speed=2/*cycles per minute*/, uint8_t brightness = 0xFF, bool mirrored=true) {
     PaletteType& palette = getPalette();
-    CRGB color;
-    do {
-      colorIndexes[n] = (colorIndexes[n] + shiftBy) % (mirrorTrackedColors ? 0x200 : 0x100);
-      shiftBy = (shiftBy > 0 ? 1 : 0); // only shift by more than 1 on the first loop, if requested
-      color = (mirrorTrackedColors ? getMirroredPaletteColor(palette, colorIndexes[n], 0xFF, colorIndex) : getPaletteColor(palette, colorIndexes[n]));
-    } while (color.getAverageLight() < minBrightness);
-    if (colorIndex && !mirrorTrackedColors) {
-      *colorIndex = colorIndexes[n];
-    }
-    return color;
-  }
-
-  void shiftTrackedColors(uint8_t addend) {
-    for (unsigned i = 0; i < colorIndexCount; ++i) {
-      colorIndexes[i] = (colorIndexes[i] + addend) % (mirrorTrackedColors ? 0x200 : 0x100);
-    }
-  }
-
-  void prepareTrackedColors(uint8_t count, int paletteCyles=1) {
-    if (colorIndexes) {
-      delete [] colorIndexes;
-    }
-    colorIndexCount = count;
-    colorIndexes = new uint16_t[colorIndexCount];
-    for (unsigned i = 0; i < colorIndexCount; ++i) {
-      colorIndexes[i] = paletteCyles * 0xFF * i / colorIndexCount;
-    }
-  }
-
-  void releaseTrackedColors() {
-    if (colorIndexes != NULL) {
-      delete [] colorIndexes;
-      colorIndexes = NULL;
-      colorIndexCount = 0;
-    }
-  }
-
-  uint8_t trackedColorsCount() {
-    return colorIndexCount;
+    uint16_t index = 0xFF * speed * millis() / 1000 / 60;
+    return (mirrored ? getMirroredPaletteColor(palette, index, brightness) : getPaletteColor(palette, index, brightness));
   }
 };
 
