@@ -92,6 +92,11 @@ void assert_func(bool result, const char *pred, const char *reasonFormat, ...) {
   }
 }
 
+template <typename T>
+inline int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
+}
+
 #define MOD_DISTANCE(a, b, m) (m / 2. - fmod((3 * m) / 2 + a - b, m))
 
 inline int mod_wrap(int x, int m) {
