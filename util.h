@@ -92,6 +92,12 @@ void assert_func(bool result, const char *pred, const char *reasonFormat, ...) {
   }
 }
 
+#define TIMEIT(name, ...) \
+  auto __start##name = micros(); \
+  __VA_ARGS__; \
+  auto __end##name = micros(); \
+  logf("%s took %ius", #name, (__end##name - __start##name));
+
 template <typename T>
 inline int sgn(T val) {
     return (T(0) < val) - (val < T(0));
@@ -218,11 +224,11 @@ public:
   }
 };
 
-template <uint8_t SIZE>
-void shuffle(int arr[SIZE]) {
-  for (unsigned i = 0; i < SIZE; ++i) {
-    uint8_t swap = random8(i, SIZE);
-    uint8_t tmp;
+template <typename T, uint16_t SIZE>
+void shuffle(T arr[SIZE]) {
+  for (uint16_t i = 0; i < SIZE; ++i) {
+    uint16_t swap = random16(i, SIZE);
+    T tmp;
     tmp = arr[i];
     arr[i] = arr[swap];
     arr[swap] = tmp;
