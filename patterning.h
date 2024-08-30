@@ -3,9 +3,8 @@
 
 #include <vector>
 #include <list>
-
-#include "drawing.h"
-#include "ledgraph.h" // FIXME: gotta get LED_COUNT out of the library without having to put it on every Pattern
+#include <functional>
+#include <drawing.h>
 #include <paletting.h>
 
 using ColorManager = PaletteRotation<CRGBPalette256>;
@@ -27,7 +26,7 @@ public:
   uint8_t alpha = 0xFF;
   uint8_t maxAlpha = 0xFF; // convenience, scales all brightness values by this amount
   virtual ~Composable() { }
-  // FIXME: needs to use the drawing context type that PatternManager uses
+
   DrawingContext ctx;
   
   void setAlpha(uint8_t b, bool animated=false, uint8_t speed=1) {
@@ -112,15 +111,22 @@ public:
 
 /* ================================================================================ */
 
+class PatternRunner;
+
+// function for creating a Pattern instance for a given PatternRunner
+using PRConstructor = std::function<Pattern*(PatternRunner&)>;
+// function for testing a Pattern-conditional predicate, return pattern alpha as uint8_t, 0 to stop
+using PRPredicate = std::function<uint8_t(PatternRunner&)>;
+
 class PatternRunner {
 public:
   Pattern *pattern = NULL;
-  function<Pattern*(PatternRunner&)> constructor;
-  uint8_t priority = 0; // higher priority dims background patterns by dimAmount
-  uint8_t dimAmount = 0;
+  PRConstructor constructor;
+  uint8_t priority = 0;  // highest priority dims background patterns by dimAmount
+  uint8_t dimAmount = 0; // if highest priority, dim other patterns by this amount
   bool paused = false;
 
-  PatternRunner(function<Pattern*(PatternRunner&)> constructor) : constructor(constructor) { }
+  PatternRunner(PRConstructor constructor) : constructor(constructor) { }
 
   virtual ~PatternRunner() {
     delete pattern;
@@ -161,10 +167,11 @@ public:
 };
 
 class ConditionalPatternRunner : public PatternRunner {
-  function<uint8_t(PatternRunner&)> runCondition; // 0 to stop, >0 to run at returned alpha
+  PRPredicate runCondition; // 0 to stop, >0 to run at returned alpha
 public:
-  ConditionalPatternRunner(function<Pattern*(PatternRunner&)> constructor, function<uint8_t(PatternRunner&)> runCondition) 
-    : PatternRunner(constructor), runCondition(runCondition) { }
+  ConditionalPatternRunner( PRConstructor constructor, 
+                            PRPredicate runCondition
+                          ) : PatternRunner(constructor), runCondition(runCondition) { }
   
   virtual void loop() {
     if (!paused) {
@@ -233,7 +240,7 @@ public:
   unsigned long patternTimeout = 40*1000;
   unsigned long crossfadeDuration = 500;
   int context=-1; // hackyhack used to not repeat random choice
-  CrossfadingPatternRunner(function<Pattern*(PatternRunner&)> constructor) : PatternRunner(constructor) { }
+  CrossfadingPatternRunner(PRConstructor constructor) : PatternRunner(constructor) { }
 
   virtual void setAlpha(uint8_t alpha) {
     PatternRunner::setAlpha(alpha);
@@ -279,12 +286,14 @@ public:
 
 /* ================================================================================ */
 
-template <typename DrawingContextType>
 class PatternManager {
-  vector<PatternRunner *> runners;                      // pattern lifecycle management
+  // pattern lifecycle management
+  std::vector<PatternRunner *> runners;
+  PatternRunner* testRunner = NULL; // used by setTestPattern for an exclusive dev mode
+
   std::vector<Pattern * (*)(void)> patternConstructors; // for indexed and random pattern modes
 
-  DrawingContextType &ctx;
+  DrawingContext &ctx;
 
   template<class T>
   static Pattern *construct() {
@@ -292,7 +301,7 @@ class PatternManager {
     return new T();
   }
 public:
-  PatternManager(DrawingContextType &ctx) : ctx(ctx) { }
+  PatternManager(DrawingContext &ctx) : ctx(ctx) { }
 
   ~PatternManager() {
     for (auto runner : runners) {
@@ -304,14 +313,13 @@ public:
   template<class T>
   PatternRunner& setTestPattern() {
     PatternRunner *runner = new ConditionalPatternRunner([](PatternRunner& runner) {
-      logf("setTestPattern construct");
       return construct<T>();
     }, [](PatternRunner&) {
       return 0xFF; // always run
     });
     runner->priority = 0xFF;
     runner->dimAmount = 0xFF;
-    runners.push_back(runner);
+    testRunner = runner;
     return *runner;
   }
   
@@ -322,7 +330,7 @@ public:
   }
 
   // Add a pattern class to run conditionally
-  ConditionalPatternRunner* setupConditionalPattern(function<Pattern*(PatternRunner&)> constructor, function<uint8_t(PatternRunner&)> runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
+  ConditionalPatternRunner* setupConditionalPattern(PRConstructor constructor, PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
     ConditionalPatternRunner *runner = new ConditionalPatternRunner(constructor, runCondition);
     runner->priority = priority;
     runner->dimAmount = dimAmount;
@@ -331,7 +339,7 @@ public:
   }
 
   template<class T>
-  inline ConditionalPatternRunner* setupConditionalPattern(function<uint8_t(PatternRunner&)> runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
+  inline ConditionalPatternRunner* setupConditionalPattern(PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
     return setupConditionalPattern([](PatternRunner&) { return construct<T>(); }, runCondition, priority, dimAmount);
   }
 
@@ -362,6 +370,13 @@ public:
     return runner;
   }
 
+  void removeAllRunners() {
+    for (auto runner : runners) {
+      delete runner;
+    }
+    runners.clear();
+  }
+
   void removeRunner(PatternRunner* runner) {
     auto it = std::find(runners.begin(), runners.end(), runner);
     if(it != runners.end()) {
@@ -369,7 +384,7 @@ public:
       delete *it;
       runners.erase(it);
     } else {
-      logf("Attempt to remove a runner that was not found");
+      assert(false, "Attempt to remove a runner that was not found");
     }
   }
 public:
@@ -380,18 +395,24 @@ public:
     
     uint8_t maxPriority = 0;
     uint8_t priorityDimAmount = 0;
-    for (PatternRunner *runner : runners) {
-      runner->loop();
-      if (runner->priority > maxPriority) {
-        // simplified: only considers dimming from the max priority runner.
-        maxPriority = runner->priority;
-        priorityDimAmount = runner->dimAmount;
+    if (!testRunner) {
+      for (PatternRunner *runner : runners) {
+        runner->loop();
+        if (runner->priority > maxPriority) {
+          // simplified: only considers dimming from the max priority runner.
+          maxPriority = runner->priority;
+          priorityDimAmount = runner->dimAmount;
+        }
       }
-    }
-    for (PatternRunner *runner : runners) {
-      // FIXME: this animates even when a test pattern is running, which makes the test pattern non-exclusive
-      runner->setAlpha(0xFF - (runner->priority < maxPriority ? priorityDimAmount : 0));
-      runner->draw(ctx);
+      for (PatternRunner *runner : runners) {
+        runner->setAlpha(0xFF - (runner->priority < maxPriority ? priorityDimAmount : 0));
+        runner->draw(ctx);
+      }
+    } else {
+      // special-case testRunner so that no other patterns are ever run
+      testRunner->loop();
+      testRunner->setAlpha(0xFF);
+      testRunner->draw(ctx);
     }
   }
 };

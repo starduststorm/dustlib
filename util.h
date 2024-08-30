@@ -77,6 +77,7 @@ void loglf(const char *format, ...)
   va_end(argptr);
 }
 
+#undef assert
 #define assert(expr, reasonFormat, ...) assert_func((expr), #expr, reasonFormat, ## __VA_ARGS__);
 
 void assert_func(bool result, const char *pred, const char *reasonFormat, ...) {
