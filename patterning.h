@@ -21,32 +21,32 @@ template<class T, class B> struct Derived_from {
 
 class Composable {
 private:
-  uint8_t targetBrightness = 0xFF;
+  uint8_t targetAlpha = 0xFF;
   uint8_t animationSpeed = 1;
 public:
-  uint8_t brightness = 0xFF;
-  uint8_t maxBrightness = 0xFF; // convenience, scales all brightness values by this amount
+  uint8_t alpha = 0xFF;
+  uint8_t maxAlpha = 0xFF; // convenience, scales all brightness values by this amount
   virtual ~Composable() { }
   // FIXME: needs to use the drawing context type that PatternManager uses
   DrawingContext ctx;
   
-  void setBrightness(uint8_t b, bool animated=false, uint8_t speed=1) {
-    targetBrightness = b;
+  void setAlpha(uint8_t b, bool animated=false, uint8_t speed=1) {
+    targetAlpha = b;
     animationSpeed = speed;
     if (!animated) {
-      brightness = b;
+      alpha = b;
     }
   }
 
   void composeIntoContext(DrawingContext &otherContext) {
-    if (brightness != targetBrightness) {
-      if (abs(targetBrightness - brightness) < animationSpeed) {
-        brightness = targetBrightness;
+    if (alpha != targetAlpha) {
+      if (abs(targetAlpha - alpha) < animationSpeed) {
+        alpha = targetAlpha;
       } else {
-        brightness += animationSpeed * sgn((int)targetBrightness - (int)brightness);
+        alpha += animationSpeed * sgn((int)targetAlpha - (int)alpha);
       }
     }
-    this->ctx.blendIntoContext(otherContext, BlendMode::blendBrighten, scale8(brightness, maxBrightness));
+    this->ctx.blendIntoContext(otherContext, BlendMode::blendBrighten, scale8(alpha, maxAlpha));
   }
 };
 
@@ -66,7 +66,9 @@ public:
   }
 
   void loop() {
-    update();
+    if (alpha > 0) {
+      update();
+    }
     lastUpdateTime = millis();
   }
 
@@ -141,7 +143,7 @@ public:
 
   virtual void setAlpha(uint8_t alpha) {
     if (pattern) {
-      pattern->setBrightness(alpha, true, 4);
+      pattern->setAlpha(alpha, true, 4);
     }
   }
 
@@ -172,7 +174,7 @@ public:
           start();
         }
         if (pattern) {
-          pattern->maxBrightness = runFade;
+          pattern->maxAlpha = runFade;
         }
       } else {
         stop();
@@ -236,7 +238,7 @@ public:
   virtual void setAlpha(uint8_t alpha) {
     PatternRunner::setAlpha(alpha);
     if (crossfadePattern) {
-      crossfadePattern->setBrightness(alpha, true, 4);
+      crossfadePattern->setAlpha(alpha, true, 4);
     }
   }
 
@@ -244,7 +246,7 @@ public:
     assert(pattern || !crossfadePattern, "inconsistent crossfade state");
     if (!pattern) {
       start();
-      pattern->brightness = 0;
+      pattern->alpha = 0;
     }
     if (pattern && !paused) {
       if (pattern->runTime() > patternTimeout) {
@@ -255,13 +257,13 @@ public:
       } else if (!crossfadePattern && pattern->runTime() > patternTimeout - crossfadeDuration) {
         // start crossfade
         crossfadePattern = constructor(*this);
-        crossfadePattern->brightness = 0;
+        crossfadePattern->alpha = 0;
         crossfadePattern->start();
       }
-      pattern->maxBrightness = crossfadeAlpha(pattern);
+      pattern->maxAlpha = crossfadeAlpha(pattern);
     }
     if (crossfadePattern && !paused) {
-      crossfadePattern->maxBrightness = crossfadeAlpha(crossfadePattern);
+      crossfadePattern->maxAlpha = crossfadeAlpha(crossfadePattern);
       crossfadePattern->loop();
     }
     PatternRunner::loop();
@@ -302,6 +304,7 @@ public:
   template<class T>
   PatternRunner& setTestPattern() {
     PatternRunner *runner = new ConditionalPatternRunner([](PatternRunner& runner) {
+      logf("setTestPattern construct");
       return construct<T>();
     }, [](PatternRunner&) {
       return 0xFF; // always run
@@ -380,12 +383,13 @@ public:
     for (PatternRunner *runner : runners) {
       runner->loop();
       if (runner->priority > maxPriority) {
-        // simplify: only consider dimming from the max priority runner
+        // simplified: only considers dimming from the max priority runner.
         maxPriority = runner->priority;
         priorityDimAmount = runner->dimAmount;
       }
     }
     for (PatternRunner *runner : runners) {
+      // FIXME: this animates even when a test pattern is running, which makes the test pattern non-exclusive
       runner->setAlpha(0xFF - (runner->priority < maxPriority ? priorityDimAmount : 0));
       runner->draw(ctx);
     }
