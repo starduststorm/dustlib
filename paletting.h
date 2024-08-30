@@ -229,27 +229,27 @@ public:
   }
   
   void getRandomPalette(T* palettePtr, uint8_t minBrightness=0, uint8_t maxColorJump=0xFF) {
-    unsigned firstChoice = random16(gGradientPaletteCount);
-    unsigned choice = firstChoice;
-    *palettePtr = gGradientPalettes[choice];    
-    bool belowMinBrightness = paletteHasColorBelowThreshold(*palettePtr, minBrightness);
-    uint8_t colorJump = paletteColorJump(*palettePtr);
-    int tries = 0;
-    while (belowMinBrightness || colorJump > maxColorJump) {
-      choice = addmod8(choice, 1, gGradientPaletteCount);
-      assert(choice != firstChoice, "No palettes of acceptable brightness & color continuity");
-      *palettePtr = gGradientPalettes[choice];
-      belowMinBrightness = paletteHasColorBelowThreshold(*palettePtr, minBrightness);
-      colorJump = paletteColorJump(*palettePtr);
-      tries++;
-      if (tries > 2*gGradientPaletteCount) {
-        logf("Giving up choosing an acceptable palette; minBrightness=%i, maxColorJump=%i", minBrightness, maxColorJump);
-        break;
+    if (!palettePtr) return;
+    uint8_t choices[gGradientPaletteCount];
+    for (int i = 0; i < gGradientPaletteCount; ++i) {
+      choices[i] = i;
+    }
+    shuffle<uint8_t, gGradientPaletteCount>(choices);
+    for (int i = 0; i < gGradientPaletteCount; ++i) {
+      *palettePtr = gGradientPalettes[choices[i]];
+      bool belowMinBrightness = paletteHasColorBelowThreshold(*palettePtr, minBrightness);
+      uint8_t colorJump = paletteColorJump(*palettePtr);
+      if (!belowMinBrightness && colorJump <= maxColorJump) {
+        logf("  Picked Palette %u", choices[i]);
+        return;
       }
     }
-    logf("  Picked Palette %u, %i tries", choice, tries);
+    
+    logf("Giving up choosing an acceptable palette; minBrightness=%i, maxColorJump=%i", minBrightness, maxColorJump);
+    *palettePtr = gGradientPalettes[random16(gGradientPaletteCount)];
   }
 };
+
 
 /* -------------------------------------------------------------------- */
 
@@ -374,7 +374,7 @@ public:
 
   CRGB getShiftingPaletteColor(uint16_t phase, int speed=2/*cycles per minute*/, uint8_t brightness = 0xFF, bool mirrored=true) {
     PaletteType& palette = getPalette();
-    uint16_t index = 0xFF * speed * millis() / 1000 / 60;
+    uint16_t index = phase + 0xFF * speed * millis() / 1000 / 60;
     return (mirrored ? getMirroredPaletteColor(palette, index, brightness) : getPaletteColor(palette, index, brightness));
   }
 };
