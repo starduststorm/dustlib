@@ -290,8 +290,8 @@ private:
   PaletteType currentPalette;
   PaletteType targetPalette;
 
-  void assignPalette(PaletteType* palettePr) {
-    manager.getRandomPalette(palettePr, minBrightness, maxColorJump);
+  void assignPalette(PaletteType* palettePtr) {
+    manager.getRandomPalette(palettePtr, minBrightness, maxColorJump);
   }
   unsigned long lastBlendStep = 0;
   unsigned long lastPaletteChange = 0;
