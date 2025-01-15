@@ -4,6 +4,8 @@
 #include <vector>
 #include <functional>
 
+// TODO: rework with interrupts
+
 class HardwareControl {
   friend class HardwareControls;
 protected:
@@ -88,7 +90,7 @@ class SPSTButton : public HardwareControl {
   ButtonHandler *handlers[handlerTypeCount] = {0};
 
   virtual void initPin(int pin) {
-    pinMode(pin, INPUT_PULLUP);
+    pinMode(pin, pressedState == LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
   }
 
   void onHandler(HandlerType type, ButtonHandler handler) {
@@ -165,6 +167,7 @@ class SPSTButton : public HardwareControl {
 public:
   uint16_t longPressInterval = 500;
   uint16_t doublePressInterval = 400;
+  bool pressedState = LOW;
 
   SPSTButton(int pin) : HardwareControl(pin) { }
   ~SPSTButton() {
@@ -176,7 +179,7 @@ public:
   }
 
   virtual bool isButtonPressed() {
-    return digitalRead(pin) == LOW;
+    return digitalRead(pin) == pressedState;
   }
 
   // guestural handlers that handle all timeouts/delays, i.e. singlePress handler will only be called if doublePress is not triggered.
@@ -219,8 +222,9 @@ public:
     controlsVec.clear();
   }
 
-  SPSTButton *addButton(int pin) {
+  SPSTButton *addButton(int pin, bool pressedState=LOW) {
     SPSTButton *button = new SPSTButton(pin);
+    button->pressedState = pressedState;
     controlsVec.push_back(button);
     return button;
   }
