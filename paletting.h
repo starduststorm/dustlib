@@ -3,7 +3,6 @@
 
 #include <FastLED.h>
 #include "ext-palettes.h"
-
 // Colors are pulled from publically available flag values, then refined to render better on my SMD LEDs
 
 DEFINE_GRADIENT_PALETTE( Trans_Flag_gp ) {
@@ -114,7 +113,7 @@ DEFINE_GRADIENT_PALETTE( Pan_Flag_gp ) {
   255, 0x1B, 0xB3, 0xFF,
 };
 
-const TProgmemRGBGradientPalettePtr gPrideFlagPalettes[] = {
+const TProgmemRGBGradientPaletteRef gPrideFlagPalettes[] = {
   Trans_Flag_gp,     // note: index is hard coded
   Enby_Flag_gp,
   Genderqueer_Flag_gp,
@@ -127,9 +126,9 @@ const TProgmemRGBGradientPalettePtr gPrideFlagPalettes[] = {
 };
 
 const uint8_t gPridePaletteCount =
-  sizeof( gPrideFlagPalettes) / sizeof( TProgmemRGBGradientPalettePtr );
+  sizeof( gPrideFlagPalettes) / sizeof( TProgmemRGBGradientPaletteRef );
 
-uint8_t paletteBandCount(TProgmemRGBGradientPalettePtr progpal) {
+uint8_t paletteBandCount(TProgmemRGBGradientPaletteRef progpal) {
   // cribbed from FastLED for counting entries in DEFINE_GRADIENT_PALETTE 
   TRGBGradientPaletteEntryUnion* progent = (TRGBGradientPaletteEntryUnion*)(progpal);
   TRGBGradientPaletteEntryUnion u;
@@ -144,7 +143,7 @@ uint8_t paletteBandCount(TProgmemRGBGradientPalettePtr progpal) {
 
 //
 
-const TProgmemRGBGradientPalettePtr gGradientPalettes[] = {
+const TProgmemRGBGradientPaletteRef gGradientPalettes[] = {
   Sunset_Real_gp,
   es_rivendell_15_gp,
   es_ocean_breeze_036_gp,
@@ -188,7 +187,7 @@ const TProgmemRGBGradientPalettePtr gGradientPalettes[] = {
 };
 
 const uint8_t gGradientPaletteCount =
-  sizeof( gGradientPalettes) / sizeof( TProgmemRGBGradientPalettePtr );
+  sizeof( gGradientPalettes) / sizeof( TProgmemRGBGradientPaletteRef );
 
 /* --- */
 
