@@ -4,6 +4,7 @@
 #include <vector>
 #include <list>
 #include <functional>
+#include <algorithm>
 #include <drawing.h>
 #include <paletting.h>
 
@@ -71,15 +72,12 @@ public:
     lastUpdateTime = millis();
   }
 
-  virtual bool wantsToIdleStop() {
-    return true;
-  }
-
   virtual void setup() { }
 
   void stop() {
     logf("Stopping %s", description());
     startTime = -1;
+    stopTime =  millis();
   }
 
   virtual void update() { }
@@ -87,8 +85,13 @@ public:
   virtual const char *description() = 0;
 
 public:
-  bool isRunning() {
+  inline bool isRunning() {
     return startTime != -1;
+  }
+
+  inline bool isStopped() {
+    // different from !isRunning
+    return stopTime != -1;
   }
 
   unsigned long runTime() {
@@ -125,6 +128,7 @@ public:
   uint8_t priority = 0;  // highest priority dims background patterns by dimAmount
   uint8_t dimAmount = 0; // if highest priority, dim other patterns by this amount
   bool paused = false;
+  bool complete = false; // true if the runner's task is complete and the runner itself can be removed
 
   PatternRunner(PRConstructor constructor) : constructor(constructor) { }
 
@@ -154,14 +158,29 @@ public:
   }
 
   virtual void loop() {
-    if (pattern && !paused) {
+    if (pattern && pattern->isRunning() && !paused) {
       pattern->loop();
     }
   }
 
   virtual void draw(DrawingContext ctx) {
-    if (pattern && !paused) {
+    if (pattern && pattern->isRunning() && !paused) {
       pattern->composeIntoContext(ctx);
+    }
+  }
+};
+
+class OneShotPatternRunner : public PatternRunner {
+public:
+  OneShotPatternRunner(PRConstructor constructor) : PatternRunner(constructor) { }
+  virtual void stop() {
+    PatternRunner::stop();
+    complete = true;
+  }
+  virtual void loop() {
+    PatternRunner::loop();
+    if (pattern && pattern->isStopped()) {
+      stop();
     }
   }
 };
@@ -183,7 +202,7 @@ public:
         if (pattern) {
           pattern->maxAlpha = runFade;
         }
-      } else {
+      } else if (pattern) {
         stop();
       }
     }
@@ -311,7 +330,7 @@ public:
 
   // Test pattern runs by default and in exclusive mode
   template<class T>
-  PatternRunner& setTestPattern() {
+  PatternRunner& setTestRunner() {
     PatternRunner *runner = new ConditionalPatternRunner([](PatternRunner& runner) {
       return construct<T>();
     }, [](PatternRunner&) {
@@ -323,14 +342,23 @@ public:
     return *runner;
   }
   
-  // Add a pattern class to the patterns list
+  // Add a pattern class to the patterns list for the random and indexed runners to use
   template<class T>
   inline void registerPattern() {
     patternConstructors.push_back(&(construct<T>));
   }
 
+  OneShotPatternRunner *runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0) {
+    OneShotPatternRunner *runner = new OneShotPatternRunner(constructor);
+    runner->dimAmount = dimAmount;
+    runner->priority = priority;
+    runners.push_back(runner);
+    runner->start();
+    return runner;
+  }
+
   // Add a pattern class to run conditionally
-  ConditionalPatternRunner* setupConditionalPattern(PRConstructor constructor, PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
+  ConditionalPatternRunner* setupConditionalRunner(PRConstructor constructor, PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
     ConditionalPatternRunner *runner = new ConditionalPatternRunner(constructor, runCondition);
     runner->priority = priority;
     runner->dimAmount = dimAmount;
@@ -339,12 +367,12 @@ public:
   }
 
   template<class T>
-  inline ConditionalPatternRunner* setupConditionalPattern(PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
+  inline ConditionalPatternRunner* setupConditionalRunner(PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
     return setupConditionalPattern([](PatternRunner&) { return construct<T>(); }, runCondition, priority, dimAmount);
   }
 
   // Start a random pattern from the patterns list with optional crossfade
-  CrossfadingPatternRunner* setupRandomPattern(unsigned long runDuration=40*1000, unsigned long crossfadeDuration=500) {
+  CrossfadingPatternRunner* setupRandomRunner(unsigned long runDuration=40*1000, unsigned long crossfadeDuration=500) {
     CrossfadingPatternRunner *runner = new CrossfadingPatternRunner([this](PatternRunner& runner) {
       CrossfadingPatternRunner &xr = (CrossfadingPatternRunner&)runner; // whee bc we know
       int choice;
@@ -363,7 +391,7 @@ public:
   }
 
   // Start a pattern by list index
-  IndexedPatternRunner *setupIndexedPattern(unsigned int index=0) {
+  IndexedPatternRunner *setupIndexedRunner(unsigned int index=0) {
     IndexedPatternRunner *runner = new IndexedPatternRunner(patternConstructors);
     runner->patternIndex = index;
     runners.push_back(runner);
@@ -413,6 +441,15 @@ public:
       testRunner->loop();
       testRunner->setAlpha(0xFF);
       testRunner->draw(ctx);
+    }
+    for (std::vector<PatternRunner *>::iterator it = runners.begin(); it < runners.end(); ) {
+      if ((*it)->complete) {
+        logdf("Removing a complete runner");
+        delete *it;
+        runners.erase(it);
+      } else {
+        ++it;
+      }
     }
   }
 };

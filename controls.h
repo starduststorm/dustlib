@@ -222,6 +222,11 @@ public:
     controlsVec.clear();
   }
 
+  HardwareControl *addControl(HardwareControl *control) {
+    controlsVec.push_back(control);
+    return control;
+  }
+
   SPSTButton *addButton(int pin, bool pressedState=LOW) {
     SPSTButton *button = new SPSTButton(pin);
     button->pressedState = pressedState;
