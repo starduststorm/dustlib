@@ -46,7 +46,9 @@ public:
         alpha += animationSpeed * sgn((int)targetAlpha - (int)alpha);
       }
     }
-    this->ctx.blendIntoContext(otherContext, BlendMode::blendBrighten, scale8(alpha, maxAlpha));
+    if (alpha > 0) {
+      this->ctx.blendIntoContext(otherContext, BlendMode::blendBrighten, scale8(alpha, maxAlpha));
+    }
   }
 };
 
@@ -348,6 +350,7 @@ public:
     patternConstructors.push_back(&(construct<T>));
   }
 
+  // Creates pattern with constructor immediately runs it. Destroyed once the pattern is stopped. Dims other patterns by dimAmount if highest priority.
   OneShotPatternRunner *runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0) {
     OneShotPatternRunner *runner = new OneShotPatternRunner(constructor);
     runner->dimAmount = dimAmount;
@@ -357,7 +360,7 @@ public:
     return runner;
   }
 
-  // Add a pattern class to run conditionally
+  // When runCondition > 0, creates pattern with constructor and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
   ConditionalPatternRunner* setupConditionalRunner(PRConstructor constructor, PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
     ConditionalPatternRunner *runner = new ConditionalPatternRunner(constructor, runCondition);
     runner->priority = priority;
@@ -366,6 +369,7 @@ public:
     return runner;
   }
 
+  // When runCondition > 0, creates given pattern class and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
   template<class T>
   inline ConditionalPatternRunner* setupConditionalRunner(PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
     return setupConditionalPattern([](PatternRunner&) { return construct<T>(); }, runCondition, priority, dimAmount);
@@ -426,7 +430,7 @@ public:
     if (!testRunner) {
       for (PatternRunner *runner : runners) {
         runner->loop();
-        if (runner->priority > maxPriority) {
+        if (runner->priority > maxPriority && runner->pattern && !runner->paused) {
           // simplified: only considers dimming from the max priority runner.
           maxPriority = runner->priority;
           priorityDimAmount = runner->dimAmount;
