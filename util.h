@@ -225,6 +225,16 @@ public:
   }
 };
 
+uint8_t sawtoothEvery(unsigned long repeatEveryMillis, unsigned riseTime, int phase=0) {
+    unsigned long sawtooth = (millis() + phase) % repeatEveryMillis;
+    if (sawtooth > repeatEveryMillis-riseTime) {
+      return 0xFF * (sawtooth-repeatEveryMillis+riseTime) / riseTime;
+    } else if (sawtooth < riseTime) {
+      return 0xFF - 0xFF * sawtooth / riseTime;
+    }
+    return 0;
+}
+
 template <typename T, uint16_t SIZE>
 void shuffle(T arr[SIZE]) {
   for (uint16_t i = 0; i < SIZE; ++i) {

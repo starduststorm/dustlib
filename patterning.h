@@ -122,6 +122,8 @@ class PatternRunner;
 using PRConstructor = std::function<Pattern*(PatternRunner&)>;
 // function for testing a Pattern-conditional predicate, return pattern alpha as uint8_t, 0 to stop
 using PRPredicate = std::function<uint8_t(PatternRunner&)>;
+// function for informing the caller of an event
+using PRCompletion = std::function<void(PatternRunner&)>;
 
 class PatternRunner {
 public:
@@ -153,9 +155,9 @@ public:
     }
   }
 
-  virtual void setAlpha(uint8_t alpha) {
+  virtual void setAlpha(uint8_t alpha, bool animated=true) {
     if (pattern) {
-      pattern->setAlpha(alpha, true, 4);
+      pattern->setAlpha(alpha, animated, 10);
     }
   }
 
@@ -173,11 +175,15 @@ public:
 };
 
 class OneShotPatternRunner : public PatternRunner {
+  PRCompletion completion;
 public:
   OneShotPatternRunner(PRConstructor constructor) : PatternRunner(constructor) { }
   virtual void stop() {
     PatternRunner::stop();
     complete = true;
+    if (completion) {
+      completion(*this);
+    }
   }
   virtual void loop() {
     PatternRunner::loop();
@@ -246,6 +252,7 @@ public:
   }
 };
 
+// TODO: would be nice for this to subclass IndexedPatternRunner and get manual pattern change by index for free
 class CrossfadingPatternRunner : public PatternRunner {
   Pattern *crossfadePattern = NULL;
   uint8_t crossfadeAlpha(Pattern *p) {
@@ -351,7 +358,8 @@ public:
   }
 
   // Creates pattern with constructor immediately runs it. Destroyed once the pattern is stopped. Dims other patterns by dimAmount if highest priority.
-  OneShotPatternRunner *runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0) {
+  // FIXME: can this return a nulling-pointer? 
+  OneShotPatternRunner *runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0, PRCompletion completion=nullptr) {
     OneShotPatternRunner *runner = new OneShotPatternRunner(constructor);
     runner->dimAmount = dimAmount;
     runner->priority = priority;
@@ -420,6 +428,18 @@ public:
     }
   }
 public:
+  // Returns a priority higher than what's currently running
+  uint8_t highestPriority() {
+    uint8_t maxPriority = 0;
+    for (PatternRunner *runner : runners) {
+      if (runner->priority > maxPriority) {
+        maxPriority = runner->priority;
+      }
+    }
+    assert(maxPriority < 0xFF, "already at max priority");
+    return min(0xFF, maxPriority + 1);
+  }
+
   void setup() { }
 
   void loop() {
