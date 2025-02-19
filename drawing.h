@@ -58,10 +58,10 @@ public:
     }
   }
 
-  void point(unsigned int index, CRGB c, BlendMode blendMode = blendSourceOver) {
-    assert(index < COUNT, "index=%u is out of range [0,%u]", count-1);  
+  void point(unsigned int index, PixelType c, BlendMode blendMode = blendSourceOver, uint8_t brightness=0xFF) {
+    assert(index < COUNT, "index=%u is out of range [0,%u]", index, count-1);
     if (index < COUNT) {
-      set_px(index, blendMode, 0xFF);
+      set_px(c, index, blendMode, brightness);
     }
   }
 };
