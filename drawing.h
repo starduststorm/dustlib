@@ -104,10 +104,4 @@ public:
   };
 };
 
-#ifdef LED_COUNT
-typedef PixelStorage<LED_COUNT> DrawingContext;
-#else
-#warning "LED_COUNT not defined, skipping DrawingContext definition"
-#endif
-
 #endif
