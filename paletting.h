@@ -114,11 +114,11 @@ DEFINE_GRADIENT_PALETTE( Pan_Flag_gp ) {
 };
 
 const TProgmemRGBGradientPaletteRef gPrideFlagPalettes[] = {
-  Trans_Flag_gp,     // note: index is hard coded
+  Trans_Flag_gp,
   Enby_Flag_gp,
   Genderqueer_Flag_gp,
-  Intersex_Flag_gp,  // note: index is hard coded
-  Pride_Flag_gp,     // note: index is hard coded
+  Intersex_Flag_gp,
+  Pride_Flag_gp,
   Bi_Flag_gp,
   Lesbian_Flag_gp,
   // Ace_Flag_gp,

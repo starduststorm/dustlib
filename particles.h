@@ -155,8 +155,16 @@ public:
     }
   }
 
+  // Bit age, capped at lifespan
   unsigned long age() {
     return min(millis() - birthmilli, lifespan ?: millis() - birthmilli);
+  }
+  // Bit age as a byte, or 0 if no max lifespan
+  uint8_t ageByte() {
+    if (lifespan > 0) {
+      return 0xFF * age() / lifespan;
+    }
+    return 0;
   }
 protected:
   unsigned long exactAge() {
