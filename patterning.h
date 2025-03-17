@@ -13,6 +13,15 @@ using ColorManager = PaletteRotation<CRGBPalette256>;
 ColorManager sharedColorManager;
 #endif
 
+// FIXME: I dislike this. 
+// but the alternative is to either require Pattern<SIZE>, Pattern(SIZE), or a custom pixel storage which doesn't inherit from CPixelView.
+// and I'm not sure I like those options any better.
+// we already need LED_COUNT for mapping.h already, so maybe this is fine.
+#ifndef LED_COUNT
+#error "patterning.h needs LED_COUNT defined"
+#endif
+using DrawingContext = PixelStorage<LED_COUNT>;
+
 // used to enforce template base class
 template<class T, class B> struct Derived_from {
   static void constraints(T* p) { B* pb = p; (void)pb; }

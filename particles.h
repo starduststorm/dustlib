@@ -12,6 +12,8 @@
 #include <paletting.h>
 #include <util.h>
 
+using namespace std;
+
 // a lil patternlet to run a particle simulation on an adjacency graph
 // supports max 255 particles for now
 
