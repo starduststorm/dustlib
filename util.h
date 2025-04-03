@@ -247,11 +247,18 @@ void shuffle(T arr[SIZE]) {
 }
 
 int lsb_noise(int pin, int numbits) {
-  // TODO: Use Entropy.h? Probs not needed just to randomize pattern.
+  // pulling the pin up briefly prevents it from converging to a value on repeated calls to lsb_noise
+  pinMode(pin, INPUT_PULLUP);
+  pinMode(pin, INPUT);
+  
   int noise = 0;
+  int lastVal = 0;
   for (int i = 0; i < numbits; ++i) {
     int val = analogRead(pin);
-    noise = (noise << 1) | (val & 1);
+    if (val != lastVal) { // repeated reads on a floating pin tend to converge, so we'll skip them when they start doing this.
+      noise = (noise << 1) | (val & 1);
+      lastVal = val;
+    }
   }
   return noise;
 }

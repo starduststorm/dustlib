@@ -113,10 +113,6 @@ DEFINE_GRADIENT_PALETTE( Pan_Flag_gp ) {
   255, 0x1B, 0xB3, 0xFF,
 };
 
-#ifndef TProgmemRGBGradientPaletteRef
-#define TProgmemRGBGradientPaletteRef TProgmemRGBGradientPalettePtr
-#endif
-
 const TProgmemRGBGradientPaletteRef gPrideFlagPalettes[] = {
   Trans_Flag_gp,
   Enby_Flag_gp,
