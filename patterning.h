@@ -22,12 +22,6 @@ ColorManager sharedColorManager;
 #endif
 using DrawingContext = PixelStorage<LED_COUNT>;
 
-// used to enforce template base class
-template<class T, class B> struct Derived_from {
-  static void constraints(T* p) { B* pb = p; (void)pb; }
-  Derived_from() { void(*p)(T*) = constraints; }
-};
-
 class Composable {
 private:
   uint8_t targetAlpha = 0xFF;

@@ -7,7 +7,7 @@
 #include <util.h>
 
 enum BlendMode {
-  blendSourceOver, blendBrighten, blendDarken, blendSubtract, /* add blending? but how to encode alpha? need CRGBA buffers, probs not worth it with current resolution */
+  blendSourceOver, blendBrighten, blendDarken, blendSubtract, blendMultiply, blendScreen, 
 };
 
 struct DrawStyle {
@@ -20,27 +20,26 @@ class PixelStorage {
 private:
   inline void set_px(PixelType src, int index, BlendMode blendMode, uint8_t brightness) {
     src.nscale8(brightness);
+    PixelType dst = leds[index];
     switch (blendMode) {
       case blendSourceOver:
-        leds[index] = src;
-        break;
-      case blendBrighten: {
-        PixelType dst = leds[index];
-        leds[index] = PixelType(std::max(src.r, dst.r), std::max(src.g, dst.g), std::max(src.b, dst.b));
-        break;
-      }
-      case blendDarken: {
-        PixelType dst = leds[index];
-        leds[index] = PixelType(std::min(src.r, dst.r), std::min(src.g, dst.g), std::min(src.b, dst.b));
-        break;
-      }
-      case blendSubtract: {
-        PixelType dst = leds[index];
-        leds[index] = dst - src;
-        break;
-      }
+        leds[index] = src; break;
+      case blendBrighten:
+        leds[index] = PixelType(std::max(src.r, dst.r), std::max(src.g, dst.g), std::max(src.b, dst.b)); break;
+      case blendDarken:
+        leds[index] = PixelType(std::min(src.r, dst.r), std::min(src.g, dst.g), std::min(src.b, dst.b)); break;
+      case blendSubtract:
+        leds[index] = dst - src; break;
+      case blendMultiply:
+        leds[index] = src.scale8(dst); break;
+      case blendScreen:
+        // 1 - [(1-dst) x (1-src)]
+        leds[index] = CRGB::White - (CRGB::White - dst).scale8(CRGB::White - dst); break;
+
     }
   }
+  unsigned long lastTick = 0;
+  uint16_t fadeDownAccum = 0;
 public:
   PixelSetType<COUNT> leds;
   const uint16_t count;
@@ -59,10 +58,22 @@ public:
   }
 
   void point(unsigned int index, PixelType c, BlendMode blendMode = blendSourceOver, uint8_t brightness=0xFF) {
-    assert(index < COUNT, "index=%u is out of range [0,%u]", index, count-1);
-    if (index < COUNT) {
+    assert(index < count, "index=%u is out of range [0,%u]", index, count-1);
+    if (index < count) {
       set_px(c, index, blendMode, brightness);
     }
+  }
+
+  // framerate-invariant high-granularity fadedown
+  void fadeToBlackBy16(uint16_t fadeDown) {
+    unsigned long mils = millis();
+    if (lastTick) {
+      fadeDownAccum += fadeDown * (mils - lastTick);
+      uint8_t fadeDownThisFrame = fadeDownAccum >> 8;
+      this->leds.fadeToBlackBy(fadeDownThisFrame);
+      fadeDownAccum -= fadeDownThisFrame << 8;
+    }
+    lastTick = mils;
   }
 };
 

@@ -81,7 +81,7 @@ EdgeTypesQuad MakeEdgeTypesQuad(EdgeTypes first, EdgeTypes second=0, EdgeTypes t
   return quad;
 }
 
-EdgeTypesPair MakeEdgeTypesPair(vector<EdgeTypes> vec) {
+EdgeTypesPair MakeEdgeTypesPair(std::vector<EdgeTypes> vec) {
   assert(vec.size() <= 2, "only two edge type directions allowed");
   unsigned size = vec.size();
   EdgeTypesPair pair = {0};
@@ -94,7 +94,7 @@ EdgeTypesPair MakeEdgeTypesPair(vector<EdgeTypes> vec) {
   return pair;
 }
 
-EdgeTypesQuad MakeEdgeTypesQuad(vector<EdgeTypes> vec) {
+EdgeTypesQuad MakeEdgeTypesQuad(std::vector<EdgeTypes> vec) {
   assert(vec.size() <= 4, "only four edge type directions allowed");
   unsigned size = vec.size();
   EdgeTypesQuad pair = {0};
@@ -115,10 +115,10 @@ EdgeTypesQuad MakeEdgeTypesQuad(vector<EdgeTypes> vec) {
 
 class Graph {
 public:
-  vector<vector<Edge> > adjList;
+  std::vector<std::vector<Edge> > adjList;
   std::map<EdgeTypes,EdgeTypes> transposeMap;
   Graph() { }
-  Graph(vector<Edge> const &edges, int count) {
+  Graph(std::vector<Edge> const &edges, int count) {
     adjList.resize(count);
 
     for (auto &edge : edges) {
@@ -154,15 +154,15 @@ public:
 
   // TODO: using std::list for adjacency search operations and returns might be a small perf win
 
-  vector<Edge> adjacencies(PixelIndex vertex, EdgeTypesPair pair, bool exactMatch=false) {
-    vector<Edge> adjList;
+  std::vector<Edge> adjacencies(PixelIndex vertex, EdgeTypesPair pair, bool exactMatch=false) {
+    std::vector<Edge> adjList;
     getAdjacencies(vertex, pair.edgeTypes.first, adjList, exactMatch);
     getAdjacencies(vertex, pair.edgeTypes.second, adjList, exactMatch);
     return adjList;
   }
 
-  vector<Edge> adjacencies(PixelIndex vertex, EdgeTypesQuad quad, bool exactMatch=false) {
-    vector<Edge> adjList;
+  std::vector<Edge> adjacencies(PixelIndex vertex, EdgeTypesQuad quad, bool exactMatch=false) {
+    std::vector<Edge> adjList;
     getAdjacencies(vertex, quad.edgeTypes.first, adjList, exactMatch);
     getAdjacencies(vertex, quad.edgeTypes.second, adjList, exactMatch);
     getAdjacencies(vertex, quad.edgeTypes.third, adjList, exactMatch);
@@ -174,7 +174,7 @@ public:
     if (matching == 0) {
       return;
     }
-    vector<Edge> &adj = adjList[vertex];
+    std::vector<Edge> &adj = adjList[vertex];
     for (Edge &edge : adj) {
       auto matchedTypes = (edge.types & matching);
       if ((matchedTypes == matching) || (!exactMatch && matchedTypes)) {

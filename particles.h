@@ -12,8 +12,6 @@
 #include <paletting.h>
 #include <util.h>
 
-using namespace std;
-
 // a lil patternlet to run a particle simulation on an adjacency graph
 // supports max 255 particles for now
 
@@ -42,10 +40,10 @@ public:
   EdgeTypesQuad directions; // quad allows four priority levels
 
 protected:
-  optional<PixelIndex> continueToPx; // stash for when particle is planning to move to a continueTo=true Edge
+  std::optional<PixelIndex> continueToPx; // stash for when particle is planning to move to a continueTo=true Edge
   bool alive = true; // when a particle dies, its fadeup trail still needs to be completed so we cannot remove it immediately
   uint8_t fadeUpDistance = 0;
-  optional<PixelIndex> *fadeHistory = NULL; // when fading up, particle.px tracks the start of the fade chain, fadeHistory tracks pixels that have not yet reached full brightness
+  std::optional<PixelIndex> *fadeHistory = NULL; // when fading up, particle.px tracks the start of the fade chain, fadeHistory tracks pixels that have not yet reached full brightness
 public:
 
   Particle(int px, EdgeTypesQuad directions, unsigned long lifespan) 
@@ -72,7 +70,7 @@ public:
     lastMove(other.lastMove),
     fadeUpDistance(other.fadeUpDistance) {
       if (this != &other) {
-        fadeHistory = new optional<PixelIndex>[fadeUpDistance];
+        fadeHistory = new std::optional<PixelIndex>[fadeUpDistance];
         for (int i = 0; i < fadeUpDistance; ++i) {
           fadeHistory[i] = other.fadeHistory[i];
         }
@@ -128,7 +126,7 @@ public:
 
     fadeUpDistance = other.fadeUpDistance;
     delete [] fadeHistory;
-    fadeHistory = new optional<PixelIndex>[fadeUpDistance];
+    fadeHistory = new std::optional<PixelIndex>[fadeUpDistance];
     for (int d = 0; d < fadeUpDistance; ++d) {
       fadeHistory[d] = other.fadeHistory[d];
     }
@@ -142,7 +140,7 @@ public:
 
   void clearFadeHistory() {
     for (unsigned i = 0; i < fadeUpDistance; ++i) {
-      fadeHistory[i] = nullopt;
+      fadeHistory[i] = std::nullopt;
     }
   }
 
@@ -150,7 +148,7 @@ public:
     fadeUpDistance = distance;
     delete [] fadeHistory;
     if (distance > 0) {
-      fadeHistory = new optional<PixelIndex>[distance];
+      fadeHistory = new std::optional<PixelIndex>[distance];
       clearFadeHistory();
     } else {
       fadeHistory = NULL;
@@ -187,11 +185,11 @@ public:
   bool followContinueTo = false;   // enable following Edges with continueTo=true when in priority mode
   bool requireExactEdgeTypeMatch = false; // require `Particle.directions == (Edge.types & Particle.directions)` rather than `Particle.direcitons & Edge.types`
 
-  vector<Particle> particles;
+  std::vector<Particle> particles;
   uint8_t maxSpawnPopulation; // number of particles to spawn when spawnRule is maintainPopulation
   uint8_t maxSpawnPerSecond; // limit how fast new particles are spawned, 0 = no limit (defaults to 1000 * maxSpawnPopulation / lifespan)
   uint8_t startingSpeed; // for new particles ; pixels/second
-  vector<EdgeTypesQuad> flowDirections; // for new particles. quad allows four priority levels
+  std::vector<EdgeTypesQuad> flowDirections; // for new particles. quad allows four priority levels
 
   unsigned long lifespan = 0; // in milliseconds, forever if 0
 
@@ -200,14 +198,14 @@ public:
 
   EdgeTypes splitDirections = Edge::all; // if flowRule is split, which directions are allowed to split
   
-  const vector<PixelIndex> *spawnPixels = NULL; // list of pixels to automatically spawn particles on
-  const set<PixelIndex> *allowedPixels = NULL; // set of pixels that particles are allowed to travel to
+  const std::vector<PixelIndex> *spawnPixels = NULL; // list of pixels to automatically spawn particles on
+  const std::set<PixelIndex> *allowedPixels = NULL; // set of pixels that particles are allowed to travel to
 
-  function<void(Particle &)> handleNewParticle = [](Particle &particle){};                               // called upon particle creation
-  function<void(Particle &, PixelIndex)> handleUpdateParticle = [](Particle &particle, uint8_t index){}; // called once per frame per live particle
-  function<void(Particle &)> handleKillParticle = [](Particle &particle){};                              // called upon particle death
+  std::function<void(Particle &)> handleNewParticle = [](Particle &particle){};                               // called upon particle creation
+  std::function<void(Particle &, PixelIndex)> handleUpdateParticle = [](Particle &particle, uint8_t index){}; // called once per frame per live particle
+  std::function<void(Particle &)> handleKillParticle = [](Particle &particle){};                              // called upon particle death
 
-  ParticleSim(Graph &graph, PixelStorage<SIZE> &ctx, uint8_t maxSpawnPopulation, uint8_t startingSpeed, unsigned long lifespan, vector<EdgeTypesQuad> flowDirections)
+  ParticleSim(Graph &graph, PixelStorage<SIZE> &ctx, uint8_t maxSpawnPopulation, uint8_t startingSpeed, unsigned long lifespan, std::vector<EdgeTypesQuad> flowDirections)
     : graph(graph), ctx(ctx), maxSpawnPopulation(maxSpawnPopulation), startingSpeed(startingSpeed), flowDirections(flowDirections), lifespan(lifespan) {
     particles.reserve(maxSpawnPopulation);
     maxSpawnPerSecond = 1000 * maxSpawnPopulation / lifespan;
@@ -222,7 +220,6 @@ private:
   unsigned long lastTick = 0;
   unsigned long lastParticleSpawn = 0;
   uint8_t fadeUpDistance = 0; // fade up n pixels ahead of particle motion
-  uint32_t fadeDownAccum = 0;
 
   PixelIndex spawnLocation() {
     if (spawnPixels) {
@@ -277,8 +274,8 @@ private:
     return true;
   }
 
-  vector<Edge> edgeCandidates(Particle &particle) {
-    vector<Edge> nextEdges;
+  std::vector<Edge> edgeCandidates(Particle &particle) {
+    std::vector<Edge> nextEdges;
     switch (flowRule) {
       case priority: {
         auto adj = ledgraph.adjacencies(particle.px, particle.directions, requireExactEdgeTypeMatch);
@@ -309,7 +306,7 @@ private:
       case random:
       case split: {
         auto allAdj = ledgraph.adjacencies(particle.px, particle.directions, requireExactEdgeTypeMatch);
-        vector<Edge> allowedEdges;
+        std::vector<Edge> allowedEdges;
         for (auto edge : allAdj) {
           if (isIndexAllowedForParticle(particle, edge.to) && edge.types && !edge.continueTo) {
             allowedEdges.push_back(edge);
@@ -342,21 +339,21 @@ private:
       for (int d = fadeUpDistance-1; d >= 1; --d) {
         particles[index].fadeHistory[d] = particles[index].fadeHistory[d-1];
       }
-      particles[index].fadeHistory[0] = (particles[index].alive ? optional<PixelIndex>(particles[index].px) : nullopt);
+      particles[index].fadeHistory[0] = (particles[index].alive ? std::optional<PixelIndex>(particles[index].px) : std::nullopt);
     }
     
     if (!particles[index].alive) {
       return false;
     }
 
-    vector<Edge> nextEdges = edgeCandidates(particles[index]);
+    std::vector<Edge> nextEdges = edgeCandidates(particles[index]);
     if (nextEdges.size() == 0) {
       // leaf behavior
       // logf("  no path for particle %i", index);
       killParticle(index);
       return false;
     } else {
-      set<PixelIndex> toVertexes; // dedupe
+      std::set<PixelIndex> toVertexes; // dedupe
       for (unsigned i = 0; i < nextEdges.size(); ++i) {
         toVertexes.insert(nextEdges[i].to);
       }
@@ -390,10 +387,7 @@ public:
       firstFrameForParticle[i] = (particles[i].lastMove == 0);
     }
 
-    fadeDownAccum += fadeDown * (mils - lastTick);
-    uint8_t fadeDownThisFrame = fadeDownAccum >> 8;
-    ctx.leds.fadeToBlackBy(fadeDownThisFrame);
-    fadeDownAccum -= fadeDownThisFrame << 8;
+    ctx.fadeToBlackBy16(fadeDown);
     
     if (spawnRule == maintainPopulation) {
       for (unsigned b = particles.size(); b < maxSpawnPopulation; ++b) {
