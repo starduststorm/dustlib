@@ -61,6 +61,7 @@ private:
   long stopTime = -1;
   long lastUpdateTime = -1;
 public:
+  bool updateWhileHidden = false; // set to true to continue to run pattern update even while pattern is not being drawn
   virtual ~Pattern() { }
 
   void start() {
@@ -71,7 +72,7 @@ public:
   }
 
   void loop() {
-    if (alpha > 0) {
+    if (updateWhileHidden || alpha > 0) {
       update();
     }
     lastUpdateTime = millis();
