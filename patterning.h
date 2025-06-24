@@ -227,6 +227,7 @@ public:
   unsigned int patternIndex = 0;
   std::vector<Pattern * (*)(void)>& patternConstructors;
   IndexedPatternRunner(std::vector<Pattern * (*)(void)>& patternConstructors) : PatternRunner([this](PatternRunner& runner) {
+      assert(this->patternIndex < this->patternConstructors.size(), "Pattern index %i out of bounds size %i", this->patternIndex, this->patternConstructors.size());
       return this->patternConstructors[this->patternIndex]();
     }), patternConstructors(patternConstructors) {}
 
