@@ -278,7 +278,7 @@ private:
     std::vector<Edge> nextEdges;
     switch (flowRule) {
       case priority: {
-        auto adj = ledgraph.adjacencies(particle.px, particle.directions, requireExactEdgeTypeMatch);
+        auto adj = graph.adjacencies(particle.px, particle.directions, requireExactEdgeTypeMatch);
         // logf("edgeCandidates: particle@px %i has %i adjacencies matching directions 0x%x", particle.px, adj.size(), particle.directions.quad);
         for (auto edge : adj) {
           // logf("  checking adj %i->%i for edge types 0x%x...", (int)edge.from, (int)edge.to, (int)edge.types);
@@ -305,7 +305,7 @@ private:
       }
       case random:
       case split: {
-        auto allAdj = ledgraph.adjacencies(particle.px, particle.directions, requireExactEdgeTypeMatch);
+        auto allAdj = graph.adjacencies(particle.px, particle.directions, requireExactEdgeTypeMatch);
         std::vector<Edge> allowedEdges;
         for (auto edge : allAdj) {
           if (isIndexAllowedForParticle(particle, edge.to) && edge.types && !edge.continueTo) {
