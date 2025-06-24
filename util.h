@@ -277,6 +277,7 @@ void printColor(CHSV color) {
   loglf("CHSV(0x%x, 0x%x, 0x%x)", color.h, color.s, color.v);
 }
 
+extern "C" char* sbrk(int incr);
 int freeRAM() {
   char top;
 #ifdef __arm__
