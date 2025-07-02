@@ -191,6 +191,7 @@ public:
   uint8_t maxBrightness = 0xFF;
   uint8_t threshold = 2; // minimum brightness change, to reduce brightness flicker
   bool logChanges = false;
+  bool paused = false;
 
   PhotoSensorBrightness(int readPin, int powerPin=-1) : readPin(readPin), powerPin(powerPin) { }
 
@@ -206,6 +207,7 @@ public:
       }
       firstLoop = false;
     }
+    if (paused) return;
     if (powerPin != -1) {
       setPower(true);
     }

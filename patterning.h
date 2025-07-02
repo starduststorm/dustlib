@@ -1,8 +1,10 @@
 #ifndef PATTERNMANAGER_H
 #define PATTERNMANAGER_H
 
+#include <memory>
 #include <vector>
 #include <list>
+#include <map>
 #include <functional>
 #include <algorithm>
 #include <drawing.h>
@@ -121,6 +123,9 @@ public:
 /* ================================================================================ */
 
 class PatternRunner;
+class ConditionalPatternRunner;
+class CrossfadingPatternRunner;
+class IndexedPatternRunner;
 
 // function for creating a Pattern instance for a given PatternRunner
 using PRConstructor = std::function<Pattern*(PatternRunner&)>;
@@ -128,6 +133,82 @@ using PRConstructor = std::function<Pattern*(PatternRunner&)>;
 using PRPredicate = std::function<uint8_t(PatternRunner&)>;
 // function for informing the caller of an event
 using PRCompletion = std::function<void(PatternRunner&)>;
+
+/* ================================================================================ */
+
+class PatternManager {
+  friend IndexedPatternRunner;
+  // pattern lifecycle management
+  std::vector<std::shared_ptr<PatternRunner> > runners;
+
+  // used by setTestPattern for an exclusive dev mode
+  PatternRunner* testRunner = NULL; 
+
+  // constructors for all registered patterns
+  std::vector<Pattern * (*)(void)> patternConstructors; 
+
+  // pattern groups (map:group index->constructor index) for indexed and random runners (default group 0)
+  std::map<int, std::vector<int> > patternGroupMap;
+
+  DrawingContext &ctx;
+
+  template<class T>
+  static Pattern *construct() {
+    Derived_from<T, Pattern>();
+    return new T();
+  }
+
+public:
+
+  std::shared_ptr<PatternRunner> addRunner(PatternRunner *runner);
+  void removeRunner(std::shared_ptr<PatternRunner> runner);
+  void removeAllRunners();
+
+  PatternManager(DrawingContext &ctx);
+
+  // Test pattern runs by default and in exclusive mode
+  template<class T>
+  PatternRunner& setTestRunner();
+  
+  // Add a pattern class to the patterns group list for the random and indexed runners to use. Returns pattern index.
+  template<class T>
+  unsigned int registerPattern(int groupID=0);
+
+  unsigned int groupAddPatternIndex(unsigned int patternIndex, int groupID);
+  void groupRemovePatternIndex(unsigned int patternIndex, int groupID);
+  Pattern *createPattern(unsigned int patternIndex, int groupID);
+  bool isValidGroupIndex(unsigned int patternIndex, int groupID);
+
+// Creates a random pattern selected from the given groupID and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
+// Only intended to be used with patterns that end on their own.
+  void runRandomOneShotFromGroup(int groupID, uint8_t priority, uint8_t dimAmount);
+
+  // Creates pattern with constructor immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
+  // Only intended to be used with patterns that end on their own.
+  shared_ptr<PatternRunner> runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0, PRCompletion completion=nullptr);
+
+  // When runCondition > 0, creates pattern with constructor and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
+  ConditionalPatternRunner* setupConditionalRunner(PRConstructor constructor, PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0);
+
+  // When runCondition > 0, creates given pattern class and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
+  template<class T>
+  inline ConditionalPatternRunner* setupConditionalRunner(PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0);
+
+  // Start a random pattern from the patterns list with optional crossfade
+  CrossfadingPatternRunner* setupRandomRunner(unsigned long runDuration=40*1000, unsigned long crossfadeDuration=500, int groupID=0);
+
+  // Start a pattern by list index
+  IndexedPatternRunner *setupIndexedRunner(unsigned int startIndex, int groupID=0);
+  CrossfadingPatternRunner *setupCrossfadingRunner(unsigned int startIndex, int groupID=0);
+
+  // Returns a priority higher than what's currently running
+  uint8_t highestPriority();
+
+  void setup();
+  void loop();
+};
+
+/* ================================================================================ */
 
 class PatternRunner {
 public:
@@ -147,8 +228,10 @@ public:
   virtual bool start() {
     assert(pattern == NULL, "attempt to run a pattern that's already running");
     pattern = constructor(*this);
-    pattern->start();
-    return true;
+    if (pattern) {
+      pattern->start();
+    }
+    return (pattern != NULL);
   }
 
   virtual void stop() {
@@ -178,9 +261,11 @@ public:
   }
 };
 
+/* ================================================================================ */
+
 class OneShotPatternRunner : public PatternRunner {
-  PRCompletion completion;
 public:
+  PRCompletion completion;
   OneShotPatternRunner(PRConstructor constructor) : PatternRunner(constructor) { }
   virtual void stop() {
     PatternRunner::stop();
@@ -222,17 +307,36 @@ public:
   }
 };
 
+// A simple pattern runner that can run all patterns in the given group by index with manual advancement
 class IndexedPatternRunner : public PatternRunner {
+protected:
+  PatternManager &manager;
+  int groupID;
+  unsigned int patternIndex;
 public:
-  unsigned int patternIndex = 0;
-  std::vector<Pattern * (*)(void)>& patternConstructors;
-  IndexedPatternRunner(std::vector<Pattern * (*)(void)>& patternConstructors) : PatternRunner([this](PatternRunner& runner) {
-      assert(this->patternIndex < this->patternConstructors.size(), "Pattern index %i out of bounds size %i", this->patternIndex, this->patternConstructors.size());
-      return this->patternConstructors[this->patternIndex]();
-    }), patternConstructors(patternConstructors) {}
+  IndexedPatternRunner(PatternManager &manager, int startPatternIndex, int groupID=0) 
+    : manager(manager), patternIndex(startPatternIndex), groupID(groupID),
+    PatternRunner([this](PatternRunner& runner) {
+      return this->manager.createPattern(this->patternIndex, this->groupID);
+    }) {}
 
-  void runPatternAtIndex(unsigned int index) {
-    if (index < patternConstructors.size()) {
+  unsigned int getPatternIndex(int *outGroupID=NULL) {
+    if (outGroupID) *outGroupID = groupID;
+    return patternIndex;
+  }
+
+  // directly set pattern index without changing the running pattern; can cue up a different pattern on next contruction
+  void setPatternIndex(unsigned int index) {
+    patternIndex = index;
+  }
+
+  void setGroup(int group, unsigned int index=0) {
+    this->groupID = group;
+    runPatternAtIndex(index);
+  }
+
+  virtual void runPatternAtIndex(unsigned int index) {
+    if (manager.isValidGroupIndex(index, groupID)) {
       stop();
       patternIndex = index;
       start();
@@ -240,12 +344,12 @@ public:
   }
   
   void nextPattern() {
-    patternIndex = (patternIndex + 1) % patternConstructors.size();
+    patternIndex = (patternIndex + 1) % manager.patternGroupMap[groupID].size();
     runPatternAtIndex(patternIndex);
   }
 
   void previousPattern() {
-    patternIndex = mod_wrap(patternIndex - 1, patternConstructors.size());
+    patternIndex = mod_wrap(patternIndex - 1, manager.patternGroupMap[groupID].size());
     runPatternAtIndex(patternIndex);
   }
 
@@ -257,28 +361,37 @@ public:
   }
 };
 
-// TODO: would be nice for this to subclass IndexedPatternRunner and get manual pattern change by index for free
-class CrossfadingPatternRunner : public PatternRunner {
+// A pattern runner that can crossfade between patterns in the given group and automatically switch between them by timeout
+class CrossfadingPatternRunner : public IndexedPatternRunner {
   Pattern *crossfadePattern = NULL;
-  uint8_t crossfadeAlpha(Pattern *p) {
-    if (p) {
-      uint8_t fadeIn = constrain(0xFF * p->runTime() / crossfadeDuration, 0, 0xFF);
-      uint8_t fadeOut = patternTimeout == 0 ? 0xFF :
-                       constrain(0xFF * (patternTimeout - p->runTime()) / crossfadeDuration, 0, 0xFF);
-      return dim8_raw(min(fadeIn, fadeOut));
-    }
-    return 0;
-  }
 public:
-  unsigned long patternTimeout = 40*1000;
+  unsigned long patternTimeout = 0; // millis, 0 for no autotimeout
   unsigned long crossfadeDuration = 500;
-  int context=-1; // hackyhack used to not repeat random choice
-  CrossfadingPatternRunner(PRConstructor constructor) : PatternRunner(constructor) { }
+  std::function<void(CrossfadingPatternRunner &)> timeoutRule = [](CrossfadingPatternRunner &) {}; // called on patternTimeout
+
+  CrossfadingPatternRunner(PatternManager &manager, int startPatternIndex, int groupID=0) : IndexedPatternRunner(manager, startPatternIndex, groupID) { }
 
   virtual void setAlpha(uint8_t alpha) {
     PatternRunner::setAlpha(alpha);
     if (crossfadePattern) {
       crossfadePattern->setAlpha(alpha, true, 4);
+    }
+  }
+
+  virtual void runPatternAtIndex(unsigned int index) {
+    if (crossfadeDuration == 0) {
+      IndexedPatternRunner::runPatternAtIndex(index);
+    } else if (manager.isValidGroupIndex(index, groupID)) {
+      patternIndex = index;
+      if (crossfadePattern) {
+        stop();
+        pattern = crossfadePattern;
+      }
+      crossfadePattern = constructor(*this);
+      if (crossfadePattern) {
+        crossfadePattern->alpha = 0;
+        crossfadePattern->start();
+      }
     }
   }
 
@@ -289,21 +402,30 @@ public:
       pattern->alpha = 0;
     }
     if (pattern && !paused) {
-      if (pattern->runTime() > patternTimeout) {
-        // done crossfading
+      if (crossfadePattern && crossfadePattern->runTime() > crossfadeDuration) {
+        // crossfade done - switch to the pattern we're crossfading in
+        logdf("  Pattern crossfade done");
         stop();
         pattern = crossfadePattern;
         crossfadePattern = NULL;
-      } else if (!crossfadePattern && pattern->runTime() > patternTimeout - crossfadeDuration) {
-        // start crossfade
+      } else if (!crossfadePattern && patternTimeout != 0 && pattern->runTime() > patternTimeout - crossfadeDuration) {
+        // almost pattern timeout - start crossfade
+        logdf("Pattern timeout - start crossfade");
+        timeoutRule(*this);
         crossfadePattern = constructor(*this);
-        crossfadePattern->alpha = 0;
-        crossfadePattern->start();
+        if (crossfadePattern) {
+          crossfadePattern->alpha = 0;
+          crossfadePattern->start();
+        }
       }
-      pattern->maxAlpha = crossfadeAlpha(pattern);
+      if (crossfadePattern) {
+        pattern->maxAlpha = dim8_raw(constrain(0xFF - 0xFF * crossfadePattern->runTime() / crossfadeDuration, 0, 0xFF));
+      } else {
+        pattern->maxAlpha = 0xFF;
+      }
     }
     if (crossfadePattern && !paused) {
-      crossfadePattern->maxAlpha = crossfadeAlpha(crossfadePattern);
+      crossfadePattern->maxAlpha = dim8_raw(constrain(0xFF * crossfadePattern->runTime() / crossfadeDuration, 0, 0xFF));
       crossfadePattern->loop();
     }
     PatternRunner::loop();
@@ -317,170 +439,211 @@ public:
   }
 };
 
-/* ================================================================================ */
+/* == PatternManager impl ========================================================== */
 
-class PatternManager {
-  // pattern lifecycle management
-  std::vector<PatternRunner *> runners;
-  PatternRunner* testRunner = NULL; // used by setTestPattern for an exclusive dev mode
+PatternManager::PatternManager(DrawingContext &ctx) : ctx(ctx) { }
 
-  std::vector<Pattern * (*)(void)> patternConstructors; // for indexed and random pattern modes
+std::shared_ptr<PatternRunner> PatternManager::addRunner(PatternRunner *runner) {
+  auto ptr = std::shared_ptr<PatternRunner>(runner);
+  runners.push_back(ptr);
+  return ptr;
+}
 
-  DrawingContext &ctx;
-
-  template<class T>
-  static Pattern *construct() {
-    Derived_from<T, Pattern>();
-    return new T();
+void PatternManager::removeRunner(std::shared_ptr<PatternRunner> runner) {
+  auto it = std::find(runners.begin(), runners.end(), runner);
+  if(it != runners.end()) {
+    (*it)->stop();
+    runners.erase(it);
+  } else {
+    assert(false, "Attempt to remove a runner that was not found");
   }
-public:
-  PatternManager(DrawingContext &ctx) : ctx(ctx) { }
+}
 
-  ~PatternManager() {
-    for (auto runner : runners) {
-      delete runner;
+void PatternManager::removeAllRunners() {
+  runners.clear();
+}
+
+// Test pattern runs by default and in exclusive mode
+template<class T>
+PatternRunner& PatternManager::setTestRunner() {
+  PatternRunner *runner = new ConditionalPatternRunner([](PatternRunner& runner) {
+    return construct<T>();
+  }, [](PatternRunner&) {
+    return 0xFF; // always run
+  });
+  runner->priority = 0xFF;
+  runner->dimAmount = 0xFF;
+  testRunner = runner;
+  return *runner;
+}
+
+// Add a pattern class to the patterns list for the random and indexed runners to use. Returns group pattern index.
+template<class T>
+unsigned int PatternManager::registerPattern(int groupID) {
+  int patternIndex = patternConstructors.size();
+  patternConstructors.push_back(&(construct<T>));
+  return groupAddPatternIndex(patternIndex, groupID);
+}
+
+// Pattern Groups
+unsigned int PatternManager::groupAddPatternIndex(unsigned int patternIndex, int groupID) {
+  patternGroupMap[groupID].push_back(patternIndex);
+  return patternGroupMap[groupID].size()-1;
+}
+
+void PatternManager::groupRemovePatternIndex(unsigned int patternIndex, int groupID) {
+  auto group = patternGroupMap[groupID];
+  auto it = find(group.begin(), group.end(), patternIndex);
+  assert(it != group.end(), "can't find patternIndex to remove it from group");
+  if (it != group.end()) {
+    group.erase(it);
+  }
+}
+
+Pattern *PatternManager::createPattern(unsigned int patternIndex, int groupID) {
+  auto group = patternGroupMap[groupID];
+  assert(patternIndex < group.size(), "createPattern: Pattern %i group %i out of bounds size %i for group", patternIndex, groupID, group.size());
+  if (patternIndex < group.size()) {
+    return patternConstructors[group[patternIndex]]();
+  }
+  return (Pattern*)nullptr;
+}
+
+bool PatternManager::isValidGroupIndex(unsigned int patternIndex, int groupID) {
+  auto group = patternGroupMap[groupID];
+  return patternIndex < group.size();
+}
+
+// Convenience
+
+// Creates a random pattern selected from the given groupID and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
+// Only intended to be used with patterns that end on their own.
+void PatternManager::runRandomOneShotFromGroup(int groupID, uint8_t priority, uint8_t dimAmount) {
+  auto patternGroup = this->patternGroupMap[groupID];
+  auto ctorIndex = patternGroup[random16(patternGroup.size())];
+  auto ctor = this->patternConstructors[ctorIndex];
+  runOneShotPattern([ctor](PatternRunner &runner) { return ctor(); }, 
+                    priority, dimAmount, 
+                    [this](PatternRunner &runner) {
+  });
+}
+
+// Creates pattern with constructor immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
+// Only intended to be used with patterns that end on their own.
+shared_ptr<PatternRunner> PatternManager::runOneShotPattern(PRConstructor constructor, uint8_t priority, uint8_t dimAmount, PRCompletion completion) {
+  OneShotPatternRunner *runner = new OneShotPatternRunner(constructor);
+  runner->completion = completion;
+  runner->dimAmount = dimAmount;
+  runner->priority = priority;
+  runner->completion = completion;
+  auto ptr = addRunner(runner);
+  runner->start();
+  return ptr;
+}
+
+// When runCondition > 0, creates pattern with constructor and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
+ConditionalPatternRunner* PatternManager::setupConditionalRunner(PRConstructor constructor, PRPredicate runCondition, uint8_t priority, uint8_t dimAmount) {
+  ConditionalPatternRunner *runner = new ConditionalPatternRunner(constructor, runCondition);
+  runner->priority = priority;
+  runner->dimAmount = dimAmount;
+  addRunner(runner);
+  return runner;
+}
+
+// When runCondition > 0, creates given pattern class and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
+template<class T>
+inline ConditionalPatternRunner* PatternManager::setupConditionalRunner(PRPredicate runCondition, uint8_t priority, uint8_t dimAmount) {
+  return setupConditionalRunner([](PatternRunner&) { return construct<T>(); }, runCondition, priority, dimAmount);
+}
+
+// Start a random pattern from a pattern group with optional crossfade
+CrossfadingPatternRunner* PatternManager::setupRandomRunner(unsigned long runDuration, unsigned long crossfadeDuration, int groupID) {
+  auto patternGroup = this->patternGroupMap[groupID];
+  unsigned int startPatternIndex = random16(patternGroup.size());
+
+  CrossfadingPatternRunner *runner = new CrossfadingPatternRunner(*this, startPatternIndex, groupID);
+  runner->patternTimeout = 40*1000;
+  runner->timeoutRule = [this](CrossfadingPatternRunner &xr) {
+    int groupID;
+    auto curIndex = xr.getPatternIndex(&groupID);
+    auto patternGroup = this->patternGroupMap[groupID];
+    if (patternGroup.size() < 2) {
+      return;
     }
-  }
-
-  // Test pattern runs by default and in exclusive mode
-  template<class T>
-  PatternRunner& setTestRunner() {
-    PatternRunner *runner = new ConditionalPatternRunner([](PatternRunner& runner) {
-      return construct<T>();
-    }, [](PatternRunner&) {
-      return 0xFF; // always run
-    });
-    runner->priority = 0xFF;
-    runner->dimAmount = 0xFF;
-    testRunner = runner;
-    return *runner;
-  }
+    unsigned int nextPattern;
+    do {
+      nextPattern = random16(patternGroup.size());
+    } while (nextPattern == curIndex);
+    xr.setPatternIndex(nextPattern);
+  };
   
-  // Add a pattern class to the patterns list for the random and indexed runners to use
-  template<class T>
-  inline void registerPattern() {
-    patternConstructors.push_back(&(construct<T>));
-  }
+  runner->patternTimeout = runDuration;
+  runner->crossfadeDuration = crossfadeDuration;
+  addRunner(runner);
+  return runner;
+}
 
-  // Creates pattern with constructor immediately runs it. Destroyed once the pattern is stopped. Dims other patterns by dimAmount if highest priority.
-  // FIXME: can this return a nulling-pointer? 
-  OneShotPatternRunner *runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0, PRCompletion completion=nullptr) {
-    OneShotPatternRunner *runner = new OneShotPatternRunner(constructor);
-    runner->dimAmount = dimAmount;
-    runner->priority = priority;
-    runners.push_back(runner);
-    runner->start();
-    return runner;
-  }
+// Start a pattern by list index
+IndexedPatternRunner *PatternManager::setupIndexedRunner(unsigned int startIndex, int groupID) {
+  IndexedPatternRunner *runner = new IndexedPatternRunner(*this, startIndex, groupID);
+  addRunner(runner);
+  return runner;
+}
 
-  // When runCondition > 0, creates pattern with constructor and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
-  ConditionalPatternRunner* setupConditionalRunner(PRConstructor constructor, PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
-    ConditionalPatternRunner *runner = new ConditionalPatternRunner(constructor, runCondition);
-    runner->priority = priority;
-    runner->dimAmount = dimAmount;
-    runners.push_back(runner);
-    return runner;
-  }
+// Start a pattern by list index with crossfading
+CrossfadingPatternRunner *PatternManager::setupCrossfadingRunner(unsigned int startIndex, int groupID) {
+  CrossfadingPatternRunner *runner = new CrossfadingPatternRunner(*this, startIndex, groupID);
+  addRunner(runner);
+  return runner;
+}
 
-  // When runCondition > 0, creates given pattern class and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
-  template<class T>
-  inline ConditionalPatternRunner* setupConditionalRunner(PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0) {
-    return setupConditionalPattern([](PatternRunner&) { return construct<T>(); }, runCondition, priority, dimAmount);
-  }
-
-  // Start a random pattern from the patterns list with optional crossfade
-  CrossfadingPatternRunner* setupRandomRunner(unsigned long runDuration=40*1000, unsigned long crossfadeDuration=500) {
-    CrossfadingPatternRunner *runner = new CrossfadingPatternRunner([this](PatternRunner& runner) {
-      CrossfadingPatternRunner &xr = (CrossfadingPatternRunner&)runner; // whee bc we know
-      int choice;
-      do {
-        choice = random16(this->patternConstructors.size());
-      } while (choice == xr.context && this->patternConstructors.size() > 1);      
-      logdf("setupRandomPattern chose %i", choice);
-      xr.context = choice; // hackyhack save off choice to not repeat it. it'd be nice to find a better way.
-      Pattern *pattern = this->patternConstructors[choice]();
-      return pattern;
-    });
-    runner->patternTimeout = runDuration;
-    runner->crossfadeDuration = crossfadeDuration;
-    runners.push_back(runner);
-    return runner;
-  }
-
-  // Start a pattern by list index
-  IndexedPatternRunner *setupIndexedRunner(unsigned int index=0) {
-    IndexedPatternRunner *runner = new IndexedPatternRunner(patternConstructors);
-    runner->patternIndex = index;
-    runners.push_back(runner);
-    return runner;
-  }
-
-  void removeAllRunners() {
-    for (auto runner : runners) {
-      delete runner;
+// Returns a priority higher than what's currently running
+uint8_t PatternManager::highestPriority() {
+  uint8_t maxPriority = 0;
+  for (auto runner : runners) {
+    if (runner->priority > maxPriority) {
+      maxPriority = runner->priority;
     }
-    runners.clear();
   }
+  assert(maxPriority < 0xFF, "already at max priority");
+  return min(0xFF, maxPriority + 1);
+}
 
-  void removeRunner(PatternRunner* runner) {
-    auto it = std::find(runners.begin(), runners.end(), runner);
-    if(it != runners.end()) {
-      (*it)->stop();
-      delete *it;
+void PatternManager::setup() { }
+
+void PatternManager::loop() {
+  ctx.leds.fill_solid(CRGB::Black);
+  
+  uint8_t maxPriority = 0;
+  uint8_t priorityDimAmount = 0;
+  if (!testRunner) {
+    for (auto runner : runners) {
+      runner->loop();
+      if (runner->priority > maxPriority && runner->pattern && !runner->paused) {
+        // simplified: only considers dimming from the max priority runner.
+        maxPriority = runner->priority;
+        priorityDimAmount = runner->dimAmount;
+      }
+    }
+    for (auto runner : runners) {
+      runner->setAlpha(0xFF - (runner->priority < maxPriority ? priorityDimAmount : 0));
+      runner->draw(ctx);
+    }
+  } else {
+    // special-case testRunner so that no other patterns are ever run
+    testRunner->loop();
+    testRunner->setAlpha(0xFF);
+    testRunner->draw(ctx);
+  }
+  for (auto it = runners.begin(); it < runners.end(); ) {
+    if ((*it)->complete) {
+      logdf("Removing a complete runner");
       runners.erase(it);
     } else {
-      assert(false, "Attempt to remove a runner that was not found");
+      ++it;
     }
   }
-public:
-  // Returns a priority higher than what's currently running
-  uint8_t highestPriority() {
-    uint8_t maxPriority = 0;
-    for (PatternRunner *runner : runners) {
-      if (runner->priority > maxPriority) {
-        maxPriority = runner->priority;
-      }
-    }
-    assert(maxPriority < 0xFF, "already at max priority");
-    return min(0xFF, maxPriority + 1);
-  }
+}
 
-  void setup() { }
-
-  void loop() {
-    ctx.leds.fill_solid(CRGB::Black);
-    
-    uint8_t maxPriority = 0;
-    uint8_t priorityDimAmount = 0;
-    if (!testRunner) {
-      for (PatternRunner *runner : runners) {
-        runner->loop();
-        if (runner->priority > maxPriority && runner->pattern && !runner->paused) {
-          // simplified: only considers dimming from the max priority runner.
-          maxPriority = runner->priority;
-          priorityDimAmount = runner->dimAmount;
-        }
-      }
-      for (PatternRunner *runner : runners) {
-        runner->setAlpha(0xFF - (runner->priority < maxPriority ? priorityDimAmount : 0));
-        runner->draw(ctx);
-      }
-    } else {
-      // special-case testRunner so that no other patterns are ever run
-      testRunner->loop();
-      testRunner->setAlpha(0xFF);
-      testRunner->draw(ctx);
-    }
-    for (std::vector<PatternRunner *>::iterator it = runners.begin(); it < runners.end(); ) {
-      if ((*it)->complete) {
-        logdf("Removing a complete runner");
-        delete *it;
-        runners.erase(it);
-      } else {
-        ++it;
-      }
-    }
-  }
-};
 
 #endif
