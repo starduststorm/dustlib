@@ -19,7 +19,7 @@
 // used to enforce template base class
 template<class T, class B> struct Derived_from {
   static void constraints(T* p) { B* pb = p; (void)pb; }
-  Derived_from() { void(*p)(T*) = constraints; }
+  Derived_from() { void(*p)(T*) = constraints; (void)p; }
 };
 
 int freeRAM();

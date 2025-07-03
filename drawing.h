@@ -51,7 +51,7 @@ public:
     if (brightness > 0) {
       // TODO: if blendMode is sourceOver can we use memcpy?
       assert(otherContext.leds.size() == this->leds.size(), "context blending requires same-size buffers");
-      for (int i = 0; i < leds.size(); ++i) {
+      for (unsigned i = 0; i < leds.size(); ++i) {
         otherContext.set_px(leds[i], i, blendMode, brightness);
       }
     }

@@ -295,7 +295,7 @@ private:
   unsigned long lastBlendStep = 0;
   unsigned long lastPaletteChange = 0;
 public:
-  int secondsPerPalette = 10;
+  unsigned int secondsPerPalette = 10;
   uint8_t minBrightness = 0;
   uint8_t maxColorJump = 0xFF;
   bool pauseRotation = false;

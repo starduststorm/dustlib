@@ -176,16 +176,17 @@ public:
 
   unsigned int groupAddPatternIndex(unsigned int patternIndex, int groupID);
   void groupRemovePatternIndex(unsigned int patternIndex, int groupID);
+  std::vector<int> patternIndexesInGroup(int groupID);
   Pattern *createPattern(unsigned int patternIndex, int groupID);
   bool isValidGroupIndex(unsigned int patternIndex, int groupID);
 
 // Creates a random pattern selected from the given groupID and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
 // Only intended to be used with patterns that end on their own.
-  void runRandomOneShotFromGroup(int groupID, uint8_t priority, uint8_t dimAmount);
+  std::shared_ptr<PatternRunner> runRandomOneShotFromGroup(int groupID, uint8_t priority, uint8_t dimAmount);
 
   // Creates pattern with constructor immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
   // Only intended to be used with patterns that end on their own.
-  shared_ptr<PatternRunner> runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0, PRCompletion completion=nullptr);
+  std::shared_ptr<PatternRunner> runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0, PRCompletion completion=nullptr);
 
   // When runCondition > 0, creates pattern with constructor and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
   ConditionalPatternRunner* setupConditionalRunner(PRConstructor constructor, PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0);
@@ -311,14 +312,14 @@ public:
 class IndexedPatternRunner : public PatternRunner {
 protected:
   PatternManager &manager;
-  int groupID;
   unsigned int patternIndex;
+  int groupID;
 public:
   IndexedPatternRunner(PatternManager &manager, int startPatternIndex, int groupID=0) 
-    : manager(manager), patternIndex(startPatternIndex), groupID(groupID),
-    PatternRunner([this](PatternRunner& runner) {
+    : PatternRunner([this](PatternRunner& runner) {
       return this->manager.createPattern(this->patternIndex, this->groupID);
-    }) {}
+    }), manager(manager), patternIndex(startPatternIndex), groupID(groupID)
+     {}
 
   unsigned int getPatternIndex(int *outGroupID=NULL) {
     if (outGroupID) *outGroupID = groupID;
@@ -419,13 +420,13 @@ public:
         }
       }
       if (crossfadePattern) {
-        pattern->maxAlpha = dim8_raw(constrain(0xFF - 0xFF * crossfadePattern->runTime() / crossfadeDuration, 0, 0xFF));
+        pattern->maxAlpha = dim8_raw(constrain((int)(0xFF - 0xFF * crossfadePattern->runTime() / crossfadeDuration), 0, 0xFF));
       } else {
         pattern->maxAlpha = 0xFF;
       }
     }
     if (crossfadePattern && !paused) {
-      crossfadePattern->maxAlpha = dim8_raw(constrain(0xFF * crossfadePattern->runTime() / crossfadeDuration, 0, 0xFF));
+      crossfadePattern->maxAlpha = dim8_raw(constrain((int)(0xFF * crossfadePattern->runTime() / crossfadeDuration), 0, 0xFF));
       crossfadePattern->loop();
     }
     PatternRunner::loop();
@@ -500,6 +501,10 @@ void PatternManager::groupRemovePatternIndex(unsigned int patternIndex, int grou
   }
 }
 
+std::vector<int> PatternManager::patternIndexesInGroup(int groupID) {
+  return patternGroupMap[groupID];
+}
+
 Pattern *PatternManager::createPattern(unsigned int patternIndex, int groupID) {
   auto group = patternGroupMap[groupID];
   assert(patternIndex < group.size(), "createPattern: Pattern %i group %i out of bounds size %i for group", patternIndex, groupID, group.size());
@@ -518,19 +523,17 @@ bool PatternManager::isValidGroupIndex(unsigned int patternIndex, int groupID) {
 
 // Creates a random pattern selected from the given groupID and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
 // Only intended to be used with patterns that end on their own.
-void PatternManager::runRandomOneShotFromGroup(int groupID, uint8_t priority, uint8_t dimAmount) {
+std::shared_ptr<PatternRunner> PatternManager::runRandomOneShotFromGroup(int groupID, uint8_t priority, uint8_t dimAmount) {
   auto patternGroup = this->patternGroupMap[groupID];
   auto ctorIndex = patternGroup[random16(patternGroup.size())];
   auto ctor = this->patternConstructors[ctorIndex];
-  runOneShotPattern([ctor](PatternRunner &runner) { return ctor(); }, 
-                    priority, dimAmount, 
-                    [this](PatternRunner &runner) {
-  });
+  return runOneShotPattern([ctor](PatternRunner &runner) { return ctor(); }, 
+                    priority, dimAmount);
 }
 
 // Creates pattern with constructor immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
 // Only intended to be used with patterns that end on their own.
-shared_ptr<PatternRunner> PatternManager::runOneShotPattern(PRConstructor constructor, uint8_t priority, uint8_t dimAmount, PRCompletion completion) {
+std::shared_ptr<PatternRunner> PatternManager::runOneShotPattern(PRConstructor constructor, uint8_t priority, uint8_t dimAmount, PRCompletion completion) {
   OneShotPatternRunner *runner = new OneShotPatternRunner(constructor);
   runner->completion = completion;
   runner->dimAmount = dimAmount;
