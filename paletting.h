@@ -55,17 +55,16 @@ DEFINE_GRADIENT_PALETTE( Pride_Flag_gp ) {
   255, 0x75, 0x07, 0xB7,
 };
 
-// if anyone can find a way to make the ace flag (white, dimmer white, off, and purple) look good on leds, lemme know
-// DEFINE_GRADIENT_PALETTE( Ace_Flag_gp ) {
-//   0,   0x00, 0x00, 0x00,
-//   63,  0x00, 0x00, 0x00,
-//   64,  0x40, 0x40, 0x40,
-//   127, 0xA4, 0xA4, 0xA4,
-//   128, 0xFF, 0xFF, 0xFF,
-//   195, 0xFF, 0xFF, 0xFF,
-//   196, 0x81, 0x00, 0x81,
-//   255, 0x81, 0x00, 0x81,
-// };
+DEFINE_GRADIENT_PALETTE( Ace_Flag_gp ) {
+  0,   0x40, 0x40, 0x40,
+  63,  0x40, 0x40, 0x40,
+  64,  0x71, 0x00, 0x81,
+  127, 0x71, 0x00, 0x81,
+  128, 0xFF, 0xFF, 0xFF,
+  195, 0xFF, 0xFF, 0xFF,
+  196, 0x71, 0x00, 0x81,
+  255, 0x71, 0x00, 0x81,
+};
 
 DEFINE_GRADIENT_PALETTE( Enby_Flag_gp ) {
   0,   0xFF, 0xF4, 0x30,
@@ -121,7 +120,7 @@ const TProgmemRGBGradientPaletteRef gPrideFlagPalettes[] = {
   Pride_Flag_gp,
   Bi_Flag_gp,
   Lesbian_Flag_gp,
-  // Ace_Flag_gp,
+  Ace_Flag_gp,
   Pan_Flag_gp,
 };
 
@@ -350,6 +349,19 @@ public:
     normalized.g = 0xFF * color.g * luma / oldLuma / 0xFF;
     normalized.b = 0xFF * color.b * luma / oldLuma / 0xFF;
     return normalized;
+  }
+
+  CRGB getMaxLumaPaletteColor(PaletteType& palette) {
+    int maxLuma = 0;
+    CRGB color = CRGB::Black;
+    for (int i = 0; i < sizeof(palette.entries) / sizeof(palette.entries[0]); ++i) {
+      auto luma = palette[i].getLuma();
+      if (luma > maxLuma){
+        maxLuma = luma;
+        color = palette[i];
+      }
+    }
+    return color;
   }
 
   inline CRGB getLumaNormalizedPaletteColor(uint8_t n, uint8_t luma) {
