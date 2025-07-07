@@ -202,13 +202,13 @@ public:
   const std::set<PixelIndex> *allowedPixels = NULL; // set of pixels that particles are allowed to travel to
 
   std::function<void(Particle &)> handleNewParticle = [](Particle &particle){};                               // called upon particle creation
-  std::function<void(Particle &, PixelIndex)> handleUpdateParticle = [](Particle &particle, uint8_t index){}; // called once per frame per live particle
+  std::function<void(Particle &, uint8_t)> handleUpdateParticle = [](Particle &particle, uint8_t index){}; // called once per frame per live particle
   std::function<void(Particle &)> handleKillParticle = [](Particle &particle){};                              // called upon particle death
 
   ParticleSim(Graph &graph, PixelStorage<SIZE> &ctx, uint8_t maxSpawnPopulation, uint8_t startingSpeed, unsigned long lifespan, std::vector<EdgeTypesQuad> flowDirections)
     : graph(graph), ctx(ctx), maxSpawnPopulation(maxSpawnPopulation), startingSpeed(startingSpeed), flowDirections(flowDirections), lifespan(lifespan) {
     particles.reserve(maxSpawnPopulation);
-    maxSpawnPerSecond = 1000 * maxSpawnPopulation / lifespan;
+    maxSpawnPerSecond = (lifespan > 0 ? 1000 * maxSpawnPopulation / lifespan : 0xFF);
   };
 
   uint16_t fadeDown = 4 << 8; // fadeToBlackBy units per 1/256 millisecond
