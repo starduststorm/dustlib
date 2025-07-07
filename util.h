@@ -110,6 +110,10 @@ inline int sgn(T val) {
     return (T(0) < val) - (val < T(0));
 }
 
+template<typename T>
+inline T mod_distance(T a, T b, T m) {
+  return (m / 2 - ((3 * m) / 2 + a - b) % m);
+}
 #define MOD_DISTANCE(a, b, m) (m / 2. - fmod((3 * m) / 2 + a - b, m))
 
 inline int mod_wrap(int x, int m) {
