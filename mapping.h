@@ -17,6 +17,13 @@ typedef uint16_t PixelIndex;
 typedef uint32_t PixelIndex;
 #endif
 
+typedef enum : uint8_t {
+  none             = 0,
+  increment        = 1 << 0, // 1
+  decrement        = 1 << 1, // 2
+  all              = 0xFF,
+} DefaultEdgeType;
+
 using EdgeTypes = uint8_t;
 
 // TODO: should these just be std::tuple instead of EdgeTypes unions?
@@ -125,8 +132,19 @@ public:
       addEdge(edge);
     }
   }
+  Graph(int count) {
+    // index connected linear map
+    for (int i = 0; i < count; ++i) {
+      addEdge(Edge(i, (i+1)%count, increment));
+      addEdge(Edge((i+1)%count, i, decrement));
+    }
+  }
 
   void addEdge(Edge newEdge, bool bidirectional=true) {
+    for (int i = adjList.size()-1; i < max(newEdge.from, newEdge.to); ++i) {
+      // Add empty buckets to make adjList cover the known needed size
+      adjList.emplace_back();
+    }
     bool forwardFound = false, reverseFound = false;
     for (Edge &edge : adjList[newEdge.from]) {
       if (edge.to == newEdge.to) {
