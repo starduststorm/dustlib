@@ -17,12 +17,15 @@ typedef uint16_t PixelIndex;
 typedef uint32_t PixelIndex;
 #endif
 
-typedef enum : uint8_t {
-  none             = 0,
-  increment        = 1 << 0, // 1
-  decrement        = 1 << 1, // 2
-  all              = 0xFF,
-} DefaultEdgeType;
+class DefaultEdgeType {
+public:
+  enum {
+    none             = 0,
+    increment        = 1 << 0, // 1
+    decrement        = 1 << 1, // 2
+    all              = 0xFF,
+  };
+};
 
 using EdgeTypes = uint8_t;
 
@@ -135,8 +138,8 @@ public:
   Graph(int count) {
     // index connected linear map
     for (int i = 0; i < count; ++i) {
-      addEdge(Edge(i, (i+1)%count, increment));
-      addEdge(Edge((i+1)%count, i, decrement));
+      addEdge(Edge(i, (i+1)%count, DefaultEdgeType::increment));
+      addEdge(Edge((i+1)%count, i, DefaultEdgeType::decrement));
     }
   }
 
