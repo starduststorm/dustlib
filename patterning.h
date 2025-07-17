@@ -355,7 +355,7 @@ public:
   }
 
   virtual void loop() {
-    if (!pattern) {
+    if (!pattern && !paused) {
       start();
     }
     PatternRunner::loop();
