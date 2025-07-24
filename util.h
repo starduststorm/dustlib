@@ -237,6 +237,35 @@ public:
   }
 };
 
+struct DebounceDigital {
+private:
+  int stableRead;
+  int lastRead;
+  unsigned long lastChange;
+public:
+  unsigned long stableMicros;
+  // debounce returns startingValue until value inititally stabilizes for stableMicros duration
+  DebounceDigital(int startingValue) : stableRead(startingValue), lastRead(startingValue), lastChange(0), stableMicros(10000) { }
+  // returns first value read and begins stabilization from that read
+  DebounceDigital() : stableRead(-1), lastRead(-1), lastChange(0), stableMicros(10000) { }
+  // idk why the default copy constructor isn't working?
+  DebounceDigital(DebounceDigital &other) : stableRead(other.stableRead), lastRead(other.lastRead), lastChange(other.lastChange), stableMicros(other.stableMicros) { }
+  int debounce(PinStatus read) {
+    if (read != lastRead) {
+      lastChange = micros();
+      lastRead = read;
+    }
+    if (lastChange == 0 || stableRead == -1 || micros() - lastChange > stableMicros) {
+      stableRead = read;
+    }
+    return stableRead;
+  }
+};
+
+int debounceDigitalRead(pin_size_t pin, DebounceDigital &debouncer) {
+  return debouncer.debounce(digitalRead(pin));
+}
+
 uint8_t sawtoothEvery(unsigned long repeatEveryMillis, unsigned riseTime, int phase=0) {
     unsigned long sawtooth = (millis() + phase) % repeatEveryMillis;
     if (sawtooth > repeatEveryMillis-riseTime) {
