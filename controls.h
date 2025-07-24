@@ -72,18 +72,20 @@ typedef std::function<void(void)> ButtonHandler;
 
 class SPSTButton : public HardwareControl {
   typedef enum {
-    singlePress,
-    doublePress,
-    longPress,
-    doubleLongPress,
-    buttonDown,
-    buttonUp,
+    singlePress,      // 0
+    doublePress,      // 1
+    longPress,        // 2
+    veryLongPress,    // 3
+    doubleLongPress,  // 4
+    buttonDown,       // 5
+    buttonUp,         // 6
     handlerTypeCount,
   } HandlerType;
 
   uint32_t buttonDownTime = 0;
   uint32_t singlePressTime = 0;
-  bool waitForButtonUp = false;
+  bool waitForButtonUpLongPress = false;
+  bool waitForButtonUpVeryLongPress = false;
   
   bool didInit = false;
   
@@ -119,9 +121,14 @@ class SPSTButton : public HardwareControl {
       doHandler(buttonUp);
     }
 
-    if (waitForButtonUp) {
+    if (waitForButtonUpLongPress || waitForButtonUpVeryLongPress)  {
+      if (!waitForButtonUpVeryLongPress && buttonPressed && readTime - buttonDownTime > veryLongPressInterval) {
+        doHandler(veryLongPress);
+        waitForButtonUpVeryLongPress = true;
+      }
       if (!buttonPressed) {
-        waitForButtonUp = false;
+        waitForButtonUpLongPress = false;
+        waitForButtonUpVeryLongPress = false;
       }
     } else {
       if (!buttonPressed && singlePressTime != 0) {
@@ -154,8 +161,7 @@ class SPSTButton : public HardwareControl {
         } else {
           doHandler(longPress);
         }
-        // waiting for button up prevents duplicate calling of the longpress handler
-        waitForButtonUp = true;
+        waitForButtonUpLongPress = true;
       }
     }
 
@@ -166,6 +172,7 @@ class SPSTButton : public HardwareControl {
 
 public:
   uint16_t longPressInterval = 500;
+  uint16_t veryLongPressInterval = 6666;
   uint16_t doublePressInterval = 400;
   bool pressedState = LOW;
 
@@ -193,6 +200,10 @@ public:
 
   void onLongPress(ButtonHandler handler) {
     onHandler(longPress, handler);
+  }
+
+  void onVeryLongPress(ButtonHandler handler) {
+    onHandler(veryLongPress, handler);
   }
 
   void onDoubleLongPress(ButtonHandler handler) {
