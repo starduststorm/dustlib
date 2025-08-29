@@ -174,19 +174,25 @@ public:
   template<class T>
   unsigned int registerPattern(int groupID=0);
 
+  // Patterns can be registered to a group index so that multiple indexed lists can be maintained. Groups can be ignored to operate on group 0.
   unsigned int groupAddPatternIndex(unsigned int patternIndex, int groupID);
   void groupRemovePatternIndex(unsigned int patternIndex, int groupID);
   std::vector<int> patternIndexesInGroup(int groupID);
   Pattern *createPattern(unsigned int patternIndex, int groupID);
   bool isValidGroupIndex(unsigned int patternIndex, int groupID);
 
-// Creates a random pattern selected from the given groupID and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
-// Only intended to be used with patterns that end on their own.
+  // Creates a random pattern selected from the given groupID and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
+  // Only intended to be used with patterns that end on their own.
   std::shared_ptr<PatternRunner> runRandomOneShotFromGroup(int groupID, uint8_t priority, uint8_t dimAmount);
 
   // Creates pattern with constructor immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
   // Only intended to be used with patterns that end on their own.
   std::shared_ptr<PatternRunner> runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0, PRCompletion completion=nullptr);
+
+  // Creates pattern of given type and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
+  // Only intended to be used with patterns that end on their own.
+  template<class T>
+  std::shared_ptr<PatternRunner> runOneShotPattern(uint8_t priority, uint8_t dimAmount, PRCompletion completion=nullptr);
 
   // When runCondition > 0, creates pattern with constructor and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
   ConditionalPatternRunner* setupConditionalRunner(PRConstructor constructor, PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0);
@@ -195,14 +201,16 @@ public:
   template<class T>
   inline ConditionalPatternRunner* setupConditionalRunner(PRPredicate runCondition, uint8_t priority=0, uint8_t dimAmount=0);
 
-  // Start a random pattern from the patterns list with optional crossfade
+  // Run random patterns from the patterns list automatically, crossfading between them
   CrossfadingPatternRunner* setupRandomRunner(unsigned long runDuration=40*1000, unsigned long crossfadeDuration=500, int groupID=0);
 
-  // Start a pattern by list index
+  // Run pattern by list index with no auto advancement
   IndexedPatternRunner *setupIndexedRunner(unsigned int startIndex, int groupID=0);
+
+  // Run pattern by list index, crossfading patter changes, with no auto advancement with default patternTimeout=0
   CrossfadingPatternRunner *setupCrossfadingRunner(unsigned int startIndex, int groupID=0);
 
-  // Returns a priority higher than what's currently running
+  // Returns a priority higher than what's currently running, or 0xFF
   uint8_t highestPriority();
 
   void setup();
@@ -542,6 +550,13 @@ std::shared_ptr<PatternRunner> PatternManager::runOneShotPattern(PRConstructor c
   auto ptr = addRunner(runner);
   runner->start();
   return ptr;
+}
+
+// Creates pattern with constructor immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
+// Only intended to be used with patterns that end on their own.
+template<class T>
+std::shared_ptr<PatternRunner> PatternManager::runOneShotPattern(uint8_t priority, uint8_t dimAmount, PRCompletion completion) {
+  return PatternManager::runOneShotPattern([](PatternRunner&) { return construct<T>(); }, priority, dimAmount, completion);
 }
 
 // When runCondition > 0, creates pattern with constructor and fades it in using runCondition return value. Dims other patterns by dimAmount if highest priority.
