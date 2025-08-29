@@ -260,11 +260,11 @@ public:
     }
     return stableRead;
   }
-};
 
-int debounceDigitalRead(pin_size_t pin, DebounceDigital &debouncer) {
-  return debouncer.debounce(digitalRead(pin));
-}
+  int digitalRead(pin_size_t pin) {
+    return debounce(::digitalRead(pin));
+  }
+};
 
 uint8_t sawtoothEvery(unsigned long repeatEveryMillis, unsigned riseTime, int phase=0) {
     unsigned long sawtooth = (millis() + phase) % repeatEveryMillis;
