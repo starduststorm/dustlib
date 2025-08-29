@@ -88,6 +88,8 @@ class SPSTButton : public HardwareControl {
   bool waitForButtonUpVeryLongPress = false;
   
   bool didInit = false;
+  bool seenFirstButtonUp = false;
+  bool loggedSeenFirstButtonUp = false;
   
   ButtonHandler *handlers[handlerTypeCount] = {0};
 
@@ -115,6 +117,15 @@ class SPSTButton : public HardwareControl {
       didInit = true;
     }
     bool buttonPressed = isButtonPressed();
+    if (ignoreEventsUntilFirstButtonUp && buttonPressed && !seenFirstButtonUp) {
+      // button pressed on launch, ignore events until it is released after launch
+      if (!loggedSeenFirstButtonUp) {
+        logf("Ignoring button events until first button-up...");
+        loggedSeenFirstButtonUp = true;
+      }
+      return;
+    }
+    seenFirstButtonUp = true;
     long readTime = millis();
 
     if (!buttonPressed && buttonDownTime != 0) {
@@ -175,6 +186,8 @@ public:
   uint16_t veryLongPressInterval = 6666;
   uint16_t doublePressInterval = 400;
   bool pressedState = LOW;
+
+  bool ignoreEventsUntilFirstButtonUp = false;
 
   SPSTButton(int pin) : HardwareControl(pin) { }
   ~SPSTButton() {
