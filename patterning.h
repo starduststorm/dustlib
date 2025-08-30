@@ -28,6 +28,7 @@ class Composable {
 private:
   uint8_t targetAlpha = 0xFF;
   uint8_t animationSpeed = 1;
+  bool firstAlphaSet = false;
 public:
   uint8_t alpha = 0xFF;
   uint8_t maxAlpha = 0xFF; // convenience, scales all brightness values by this amount
@@ -36,6 +37,11 @@ public:
   DrawingContext ctx;
   
   void setAlpha(uint8_t b, bool animated=false, uint8_t speed=1) {
+    if (!firstAlphaSet) {
+      // decline to animate the first alpha set on brand new composables so that we start from whatever the baseline is
+      animated = false;
+      firstAlphaSet = true;
+    }
     targetAlpha = b;
     animationSpeed = speed;
     if (!animated) {
