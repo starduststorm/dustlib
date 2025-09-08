@@ -327,6 +327,10 @@ public:
   // unblended override
   virtual void setPalette(PaletteType palette) {
     currentPalette = palette;
+    if (lastPaletteChange == 0) {
+      assignPalette(&targetPalette);
+    }
+    lastPaletteChange = millis();
   }
 
   void randomizePalette() {
