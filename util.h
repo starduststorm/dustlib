@@ -250,7 +250,7 @@ public:
   DebounceDigital() : stableRead(-1), lastRead(-1), lastChange(0), stableMicros(10000) { }
   // idk why the default copy constructor isn't working?
   DebounceDigital(DebounceDigital &other) : stableRead(other.stableRead), lastRead(other.lastRead), lastChange(other.lastChange), stableMicros(other.stableMicros) { }
-  int debounce(PinStatus read) {
+  int debounce(int read) {
     if (read != lastRead) {
       lastChange = micros();
       lastRead = read;
@@ -261,7 +261,7 @@ public:
     return stableRead;
   }
 
-  int digitalRead(pin_size_t pin) {
+  int digitalRead(uint32_t pin) {
     return debounce(::digitalRead(pin));
   }
 };
