@@ -175,6 +175,7 @@ public:
   // Test pattern runs by default and in exclusive mode
   template<class T>
   PatternRunner& setTestRunner();
+  bool hasTestRunner();
   
   // Add a pattern class to the patterns group list for the random and indexed runners to use. Returns pattern index.
   template<class T>
@@ -490,6 +491,10 @@ PatternRunner& PatternManager::setTestRunner() {
   runner->dimAmount = 0xFF;
   testRunner = runner;
   return *runner;
+}
+
+bool PatternManager::hasTestRunner() {
+  return (testRunner != NULL);
 }
 
 // Add a pattern class to the patterns list for the random and indexed runners to use. Returns group pattern index.
