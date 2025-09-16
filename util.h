@@ -127,14 +127,15 @@ inline float fmod_wrap(float x, int m) {
 }
 
 void DrawModal(int fps, unsigned long durationMillis, std::function<void(unsigned long elapsed)> tick) {
-  int delayMillis = 1000/fps;
+  long delayMillis = 1000/fps;
   unsigned long start = millis();
   unsigned long elapsed = 0;
   do {
     unsigned long startMils = millis();
     tick(elapsed);
     FastLED.show();
-    FastLED.delay(max(0, delayMillis - (millis()-startMils)));
+    unsigned long tickDelay = max(0, delayMillis - (long)(millis()-startMils));
+    FastLED.delay(tickDelay);
     elapsed = millis() - start;
   } while (elapsed < durationMillis);
 }
@@ -266,14 +267,22 @@ public:
   }
 };
 
-uint8_t sawtoothEvery(unsigned long repeatEveryMillis, unsigned riseTime, int phase=0) {
-    unsigned long sawtooth = (millis() + phase) % repeatEveryMillis;
-    if (sawtooth > repeatEveryMillis-riseTime) {
-      return 0xFF * (sawtooth-repeatEveryMillis+riseTime) / riseTime;
-    } else if (sawtooth < riseTime) {
-      return 0xFF - 0xFF * sawtooth / riseTime;
-    }
+uint8_t sawtoothEvery(unsigned long repeatEveryMillis, unsigned fadeTime, int phase=0, int plateauTime=0) {
+  if (millis() < repeatEveryMillis/2) {
+    // hack to not partially run these on launch
     return 0;
+  }
+  unsigned long sawtooth = (millis() + phase) % repeatEveryMillis;
+  if (sawtooth > repeatEveryMillis-fadeTime) {
+    // fadein
+    return 0xFF * (sawtooth-repeatEveryMillis+fadeTime) / fadeTime;
+  } else if (sawtooth < plateauTime) {
+    return 0xFF;
+  } else if (sawtooth < fadeTime + plateauTime) {
+    // fadeout
+    return 0xFF - 0xFF * sawtooth / (fadeTime+plateauTime);
+  }
+  return 0;
 }
 
 template <typename T, uint16_t SIZE>
