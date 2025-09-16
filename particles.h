@@ -26,8 +26,8 @@ struct Particle {
 private:
   unsigned long birthmilli;
   unsigned long lastMove = 0; // when px was updated
-  PixelIndex lastPx;
 public:
+  PixelIndex lastPx;
   PixelIndex px; // current particle position (or start of fadeup-chain)
 
   uint8_t brightness = 0xFF;
@@ -274,6 +274,7 @@ private:
     return true;
   }
 
+public:
   std::vector<Edge> edgeCandidates(Particle &particle) {
     std::vector<Edge> nextEdges;
     switch (flowRule) {
@@ -333,6 +334,7 @@ private:
     return nextEdges;
   }
 
+private:
   bool flowParticle(uint8_t index) {
     if (fadeUpDistance > 0) {
       // scoot the fade-up history
