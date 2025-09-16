@@ -193,7 +193,7 @@ const uint8_t gGradientPaletteCount =
 template <class T>
 class PaletteManager {
 private:
-  bool paletteHasColorBelowThreshold(T &palette, uint8_t minBrightness) {
+  static bool paletteHasColorBelowThreshold(T &palette, uint8_t minBrightness) {
     if (minBrightness == 0) {
       return false;
     }
@@ -205,7 +205,7 @@ private:
     return false;
   }
 
-  uint8_t paletteColorJump(T& palette, bool wrapped=false) {
+  static uint8_t paletteColorJump(T& palette, bool wrapped=false) {
     uint8_t maxJump = 0;
     CRGB lastColor = palette.entries[(wrapped ? sizeof(T)/3 - 1 : 1)];
     for (uint16_t i = (wrapped ? 0 : 1); i < sizeof(T)/3; ++i) {
@@ -218,15 +218,15 @@ private:
     }
     return maxJump;
   }
-public:  
-  PaletteManager() {
-  }
 
-  T getPalette(int choice) {
+public:
+  PaletteManager() { }
+
+  static T getPalette(int choice) {
     return gGradientPalettes[choice];
   }
   
-  void getRandomPalette(T* palettePtr, uint8_t minBrightness=0, uint8_t maxColorJump=0xFF) {
+  static void getRandomPalette(T* palettePtr, uint8_t minBrightness=0, uint8_t maxColorJump=0xFF) {
     if (!palettePtr) return;
     uint8_t choices[gGradientPaletteCount];
     for (int i = 0; i < gGradientPaletteCount; ++i) {
@@ -372,7 +372,7 @@ public:
     return getLumaNormalizedPaletteColor(getPalette(), n, luma);
   }
 
-  CRGB getMirroredPaletteColor(PaletteType& palette, uint16_t n, uint8_t brightness = 0xFF, uint8_t *outColorIndex=NULL) {
+  static CRGB getMirroredPaletteColor(PaletteType& palette, uint16_t n, uint8_t brightness = 0xFF, uint8_t *outColorIndex=NULL) {
     n = n % 0x200;
     if (n >= 0x100) {
       n = 0x200 - n - 1;
@@ -384,7 +384,7 @@ public:
   }
 
   inline CRGB getMirroredPaletteColor(uint16_t n, uint8_t brightness = 0xFF, uint8_t *outColorIndex=NULL) {
-    return getMirroredPaletteColor(getPalette(), n, brightness, outColorIndex);
+    return PaletteRotation<PaletteType>::getMirroredPaletteColor(getPalette(), n, brightness, outColorIndex);
   }
 
   CRGB getShiftingPaletteColor(uint16_t phase, int speed=2/*cycles per minute*/, uint8_t brightness = 0xFF, bool mirrored=true) {
