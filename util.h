@@ -200,6 +200,57 @@ public:
 
   PhotoSensorBrightness(int readPin, int powerPin=-1) : readPin(readPin), powerPin(powerPin) { }
 
+  template<int SIZE>
+  void measureBaseline(CRGBArray<SIZE> &leds, uint8_t globalBrightness, int* testPixels, int testCount) {
+    FastLED.setBrightness(globalBrightness);
+    leds.fill_solid(CRGB::Black);
+    FastLED.show();
+
+    pinMode(powerPin, OUTPUT);
+    pinMode(readPin, INPUT);
+    digitalWrite(powerPin, true);
+    delay(20);
+    const int baselineSamples = 20;
+    int avgSum = 0;
+    for (int i = 0; i < baselineSamples; ++i) {
+      int read = analogRead(readPin);
+      logf("all pixels off baseline read = %i", read);
+      avgSum+=read;
+    }
+    logf("baseline avg = %0.2f", avgSum/(float)baselineSamples);
+    logf("");
+
+    for (int i = 0; i < testCount; ++i) {
+      int px = testPixels[i];
+      for (int channel = 0; channel < 3; ++channel) {
+        for (int i = 0; i <= 255; i += 15) {
+          CRGB color = i << (8*channel);
+          leds[px] = color;
+          FastLED.show();
+          FastLED.delay(20);
+          loglf("px %i color %02X,%02X,%02X: readings", px, color.r, color.g, color.b);
+          const int pxSamples = 3;
+          int pxSum = 0;
+          for (int i = 0; i < pxSamples; ++i) {
+            int read = analogRead(readPin);
+            pxSum+=read;
+            FastLED.delay(3);
+            loglf(" %i,", read);
+          }
+          logf(" avg over %i reads = %0.2f", pxSamples, pxSum/(float)pxSamples);
+        }
+      }
+      leds[px] = CRGB::Black;
+    }
+    
+    leds.fill_solid(CRGB::Black);
+    FastLED.show();
+    logf("done");
+    while(1) delay(100);
+  }
+
+  // TODO: feature to allow PhotoSensorBrightness to use the values measured in -measureBaseline to get an accurate reading even when nearby leds are on
+
   void setPower(bool power) {
     digitalWrite(powerPin, power);
   }
