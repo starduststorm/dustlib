@@ -12,6 +12,7 @@ protected:
   virtual void update() = 0;
   int pin;
 public:
+  bool pauseEvents = false;
   HardwareControl(int pin) : pin(pin) {};
   virtual ~HardwareControl() {};
 };
@@ -28,6 +29,9 @@ class AnalogDial : public HardwareControl {
   bool firstUpdate = true; // always call handler on first update to help set initial values
 
   void update() {
+    if (pauseEvents) { 
+      return;
+    }
     uint32_t value;
     if (readValueFunc) {
       value = (*readValueFunc)();
@@ -88,7 +92,6 @@ class SPSTButton : public HardwareControl {
   bool waitForButtonUpVeryLongPress = false;
   
   bool didInit = false;
-  bool seenFirstButtonUp = false;
   bool loggedSeenFirstButtonUp = false;
   
   ButtonHandler *handlers[handlerTypeCount] = {0};
@@ -115,6 +118,9 @@ class SPSTButton : public HardwareControl {
     if (!didInit) {
       initPin(pin);
       didInit = true;
+    }
+    if (pauseEvents) {
+      return;
     }
     bool buttonPressed = isButtonPressed();
     if (ignoreEventsUntilFirstButtonUp && buttonPressed && !seenFirstButtonUp) {
@@ -188,6 +194,7 @@ public:
   bool pressedState = LOW;
 
   bool ignoreEventsUntilFirstButtonUp = false;
+  bool seenFirstButtonUp = false;
 
   SPSTButton(int pin) : HardwareControl(pin) { }
   ~SPSTButton() {
