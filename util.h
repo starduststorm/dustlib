@@ -277,14 +277,14 @@ public:
       targetBrightness = 0xFF - targetBrightness;
     }
     targetBrightness = max(minBrightness, scale8(targetBrightness, maxBrightness));
-    uint8_t currentBrightness = FastLED.getBrightness();
+    uint8_t currentBrightness = min(FastLED.getBrightness(), maxBrightness);
     int diff = targetBrightness - currentBrightness;
     if (abs(diff) > threshold) {
       uint8_t nextBrightness = currentBrightness + (diff < 0 ? -1 : 1);
       if (logChanges) {
         logf("currentBrightness=%i, targetBrightness=%i, setBrightness->%i", currentBrightness, targetBrightness, nextBrightness);
       }
-      FastLED.setBrightness(nextBrightness);
+      FastLED.setBrightness(min(nextBrightness, maxBrightness));
     }
   }
 };
