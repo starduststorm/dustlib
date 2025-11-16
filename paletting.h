@@ -292,7 +292,7 @@ public:
 /* -------------------------------------------------------------------- */
 
 template<typename PaletteType>
-void nblendPaletteTowardPalette(PaletteType& current, PaletteType& target, uint16_t maxChanges)
+bool nblendPaletteTowardPalette(PaletteType& current, PaletteType& target, uint16_t maxChanges)
 {
   uint8_t* p1;
   uint8_t* p2;
@@ -319,12 +319,15 @@ void nblendPaletteTowardPalette(PaletteType& current, PaletteType& target, uint1
     // if we've hit the maximum number of changes, exit
     if( changes >= maxChanges) { break; }
   }
+  return changes > 0;
 }
 
 template <typename PaletteType>
 class PaletteRotation {
 private:
   PaletteManager<PaletteType> manager;
+  bool doneInit=false;
+  PaletteType startingPalette;
   PaletteType currentPalette;
   PaletteType targetPalette;
 
@@ -341,20 +344,42 @@ public:
   
   PaletteRotation(int minBrightness=0) : minBrightness(minBrightness) { }
   
-  void paletteRotationTick() {
-    if (lastPaletteChange == 0) {
+  void initPalettes() {
+    if (!doneInit) {
       assignPalette(&currentPalette);
       assignPalette(&targetPalette);
+      startingPalette = currentPalette;
+      lastPaletteChange = millis();
+      doneInit = true;
+    }
+  }
+
+  void paletteRotate(int amt) {
+    initPalettes();
+    if (amt == 0) return;
+    bool changed = false;
+    CRGBPalette256 &towards = (amt > 0 ? targetPalette : startingPalette);
+    if (amt < 0) {
+      amt = -amt;
+    }
+    for (int i = 0; i < amt; ++i) {
+      changed = nblendPaletteTowardPalette<PaletteType>(currentPalette, towards, sizeof(PaletteType) / 3) || changed;
+    }
+    if (!changed) {
+      // done animating, choose a new target
+      assignPalette(&towards);
       lastPaletteChange = millis();
     }
+  }
+
+  void paletteRotationTick(int amt=0) {
+    initPalettes();
     if (!pauseRotation) {
-      if (millis() - lastBlendStep > 40) {
-        nblendPaletteTowardPalette<PaletteType>(currentPalette, targetPalette, sizeof(PaletteType) / 3);
+      if (amt != 0) {
+        paletteRotate(amt);
+      } else if (millis() - lastBlendStep > secondsPerPalette*1000/255) {
+        paletteRotate(1);
         lastBlendStep = millis();
-      }
-      if (millis() - lastPaletteChange > 1000 * secondsPerPalette) {
-        assignPalette(&targetPalette);
-        lastPaletteChange = millis();
       }
     }
   }
@@ -367,6 +392,7 @@ public:
   // unblended override
   virtual void setPalette(PaletteType palette) {
     currentPalette = palette;
+    startingPalette = currentPalette;
     if (lastPaletteChange == 0) {
       assignPalette(&targetPalette);
     }
@@ -375,6 +401,7 @@ public:
 
   void randomizePalette() {
     assignPalette(&currentPalette);
+    startingPalette = currentPalette;
   }
 
   inline CRGB getPaletteColor(PaletteType& palette, uint8_t n, uint8_t brightness=0xFF) {
