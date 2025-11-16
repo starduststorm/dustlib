@@ -230,13 +230,14 @@ private:
 
   Particle &makeParticle(Particle *fromParticle=NULL) {
     assert(particles.size() < 255, "Too many particles");
-    // the particle directions at the Particles level may contain multiple options, choose one at random for this particle
-    EdgeTypesQuad directionsForParticle = flowDirections[random8(flowDirections.size())];
 
     if (fromParticle) {
       particles.emplace_back(*fromParticle);
       particles.back().clearFadeHistory();
     } else {
+      // the particle directions at the Particles level may contain multiple options, choose one at random for this particle
+      EdgeTypesQuad directionsForParticle = flowDirections[random8(flowDirections.size())];
+
       particles.emplace_back(spawnLocation(), directionsForParticle, lifespan);
       particles.back().setFadeUpDistance(fadeUpDistance);
       particles.back().speed = startingSpeed;
@@ -248,12 +249,17 @@ private:
     particles.erase(particles.begin() + index);
   }
 
-  void killParticle(uint8_t index) {
-    particles[index].alive = false;
-    handleKillParticle(particles[index]);
-    if (particles[index].fadeUpDistance == 0) {
-      eraseParticle(index);
+  bool killParticle(uint8_t index) {
+    if (particles[index].alive) {
+      particles[index].alive = false;
+      handleKillParticle(particles[index]);
+      if (particles[index].fadeUpDistance == 0) {
+        // if there is a fade, the particle will be erased when its fade is complete
+        eraseParticle(index);
+        return true;
+      }
     }
+    return false;
   }
 
   void splitParticle(Particle &particle, PixelIndex toPx) {
@@ -376,7 +382,7 @@ public:
     logf("There are %i particles", particles.size());
     for (unsigned b = 0; b < particles.size(); ++b) {
       Particle &particle = particles[b];
-      logf("Particle %i: px=%i, birthmilli=%lu, colorIndex=%u, speed=%u, directions=%x", b, particle.px, particle.birthmilli, particle.colorIndex, particle.speed, particle.directions.quad);
+      logf("Particle %i: px=%i, lifespan=%u, exactAge=%u, colorIndex=%u, speed=%u, directions=%x", b, particle.px, particle.lifespan, particle.exactAge(), particle.colorIndex, particle.speed, particle.directions.quad);
     }
     logf("--------");
   }
@@ -404,20 +410,21 @@ public:
     // // Update! // //
     
     for (int i = particles.size() - 1; i >= 0; --i) {
-      Particle &p = particles[i];
       if (firstFrameForParticle[i]) {
         // don't flow particles on the first frame. this allows pattern code to make their own particles that are displayed before being flowed
-        p.lastMove = mils;
-      } else if (mils - p.lastMove > 1000/p.speed) {
-        if (flowParticle(i)) { // possibly destroys the particle
-          if (p.lifespan != 0 && p.exactAge() > p.lifespan) {
-            killParticle(i);
-          } else {
-            if (mils - p.lastMove > 2000/p.speed) {
-              p.lastMove = mils;
+        particles[i].lastMove = mils;
+      } else {
+        bool particleKilled=false;
+        if (particles[i].lifespan != 0 && particles[i].exactAge() > particles[i].lifespan) {
+          particleKilled = killParticle(i);
+        }
+        if (!particleKilled && mils - particles[i].lastMove > 1000/particles[i].speed) {
+          if (flowParticle(i)) { // possibly reallocates particles vector or destroys the particle
+            if (mils - particles[i].lastMove > 2000/particles[i].speed) {
+              particles[i].lastMove = mils;
             } else {
               // This helps avoid time drift, which for some reason can make one device run consistently faster than another
-              p.lastMove += 1000/p.speed;
+              particles[i].lastMove += 1000/particles[i].speed;
             }
           }
         }
@@ -429,26 +436,28 @@ public:
     if (fadeUpDistance == 0) {
       for (Particle &p : particles) {
         if (!p.alive) continue;
-        uint8_t blendAmount = 0xFF / (fadeUpDistance+1);
         CRGB newColor = CRGB(p.color).nscale8(p.brightness);
-        ctx.point(p.px, newColor, blendBrighten, blendAmount);
+        ctx.point(p.px, newColor, blendBrighten);
       }
     } else { // fade up
       for (int index = particles.size() - 1; index >= 0; --index) {
         Particle &p = particles[index];
         bool activelyFading = false;
-        // logf("  p %i at px %i", index, p.px);
-        // loglf("fade up for p %i: ", index);
-        for (int d = 0; d < p.fadeUpDistance; ++d) {
-          if (p.fadeHistory[d].has_value()) {
-            PixelIndex px = p.fadeHistory[d].value();
+        for (int d = 0; d < p.fadeUpDistance+1; ++d) {
+          PixelIndex px;
+          if (d == 0) {
+            px = p.px;
+          } else {
+            if (!p.fadeHistory[d-1].has_value()) {
+              break;
+            }
+            px = p.fadeHistory[d-1].value();
             activelyFading = true;
-
-            uint16_t interMoveScale = (firstFrameForParticle[index] ? 0 : (1<<16-1) * (mils - p.lastMove) * p.speed / 1000);
-            uint8_t blendAmount = d * 0xFF / p.fadeUpDistance + scale16(0xFF/fadeUpDistance, interMoveScale);
-            blendAmount = scale8(blendAmount, p.brightness);
-            ctx.point(px, p.color, blendBrighten, blendAmount);
           }
+          uint16_t interMoveScale = (firstFrameForParticle[index] ? 0 : (1<<16-1) * (mils - p.lastMove) * p.speed / 1000);
+          uint8_t blendAmount = min(0xFF, d * 0xFF / p.fadeUpDistance + scale16(0xFF/p.fadeUpDistance, interMoveScale));
+          blendAmount = scale8(blendAmount, p.brightness);
+          ctx.point(px, p.color, blendBrighten, blendAmount);
         }
         if (!p.alive && !activelyFading) {
           eraseParticle(index);
