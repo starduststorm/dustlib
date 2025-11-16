@@ -145,6 +145,7 @@ class FrameCounter {
     unsigned long lastPrint = 0;
     long frames = 0;
     long lastClamp = 0;
+    int fpsAssertionCount = 0;
   public:
     long printInterval = 2000;
     int framerateLogging = true;
@@ -181,6 +182,24 @@ class FrameCounter {
 #endif
         }
         lastClamp = millis();
+      }
+    }
+    void takeFPSAssertion() {
+      fpsAssertionCount++;
+    }
+
+    void releaseFPSAssertion() {
+      assert(fpsAssertionCount>0,"no assertion to release");
+      fpsAssertionCount--;
+    }
+
+    bool hasFPSAssertion() {
+      return fpsAssertionCount > 0;
+    }
+
+    void idleDelay(unsigned long mils) {
+      if (fpsAssertionCount == 0) {
+        FastLED.delay(mils);
       }
     }
 };
