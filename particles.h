@@ -390,11 +390,6 @@ public:
   void update() {
     unsigned long mils = millis();
 
-    bool firstFrameForParticle[particles.size()];
-    for (int i = 0 ; i < particles.size(); ++i) {
-      firstFrameForParticle[i] = (particles[i].lastMove == 0);
-    }
-
     ctx.fadeToBlackBy16(fadeDown);
     
     if (spawnRule == maintainPopulation) {
@@ -405,6 +400,11 @@ public:
         addParticle();
         lastParticleSpawn = mils;
       }
+    }
+
+    bool firstFrameForParticle[particles.size()];
+    for (int i = 0 ; i < particles.size(); ++i) {
+      firstFrameForParticle[i] = (particles[i].lastMove == 0);
     }
 
     // // Update! // //
