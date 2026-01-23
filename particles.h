@@ -462,8 +462,8 @@ public:
         bool firstMove = true;
         bool particleAlive = true;
         while (particleAlive && mils - (particles[i].lastMove + moveAccum) > millisPerMove) {
-          if (!firstMove) {
-            // if we only move one step, drawing is handled below
+          if (fadeUpDistance > 0 || !firstMove) {
+            // moving multiple pixels in one frame or there are dim fadeup pixels to overdraw before moving on
             CRGB newColor = CRGB(particles[i].color).nscale8(particles[i].brightness);
             ctx.point(particles[i].px, newColor, blendBrighten);
             // fadeup will track the n most recent positions and fade them properly afterwards
