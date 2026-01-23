@@ -155,6 +155,26 @@ public:
     }
   }
 
+  void shiftFadeHistory() {
+    if (fadeUpDistance > 0) {
+      // scoot the fade-up history
+      // TODO: ring buffer
+      for (int d = fadeUpDistance-1; d >= 1; --d) {
+        fadeHistory[d] = fadeHistory[d-1];
+      }
+      fadeHistory[0] = (alive ? std::optional<PixelIndex>(px) : std::nullopt);
+    }
+  }
+
+  void moveTo(PixelIndex to) {
+    // a move function that maintains fade history
+    shiftFadeHistory();
+    if (alive) {
+      lastPx = px;
+      px = to;
+    }
+  }
+
   // Bit age, capped at lifespan
   unsigned long age() {
     return min(millis() - birthmilli, lifespan ?: millis() - birthmilli);
@@ -171,7 +191,6 @@ protected:
     return millis() - birthmilli;
   }
 };
-
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
@@ -352,14 +371,7 @@ public:
 
 private:
   bool flowParticle(uint8_t index) {
-    if (fadeUpDistance > 0) {
-      // scoot the fade-up history
-      // TODO: ring buffer
-      for (int d = fadeUpDistance-1; d >= 1; --d) {
-        particles[index].fadeHistory[d] = particles[index].fadeHistory[d-1];
-      }
-      particles[index].fadeHistory[0] = (particles[index].alive ? std::optional<PixelIndex>(particles[index].px) : std::nullopt);
-    }
+    particles[index].shiftFadeHistory();
     
     if (!particles[index].alive) {
       return false;
