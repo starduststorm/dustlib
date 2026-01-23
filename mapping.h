@@ -177,21 +177,21 @@ public:
 
   std::vector<Edge> adjacencies(PixelIndex vertex, EdgeTypesPair pair, bool exactMatch=false) {
     std::vector<Edge> adjList;
-    getAdjacencies(vertex, pair.edgeTypes.first, adjList, exactMatch);
-    getAdjacencies(vertex, pair.edgeTypes.second, adjList, exactMatch);
+    getAdjacencies(vertex, pair.edgeTypes.first,  exactMatch, adjList);
+    getAdjacencies(vertex, pair.edgeTypes.second, exactMatch, adjList);
     return adjList;
   }
 
   std::vector<Edge> adjacencies(PixelIndex vertex, EdgeTypesQuad quad, bool exactMatch=false) {
     std::vector<Edge> adjList;
-    getAdjacencies(vertex, quad.edgeTypes.first, adjList, exactMatch);
-    getAdjacencies(vertex, quad.edgeTypes.second, adjList, exactMatch);
-    getAdjacencies(vertex, quad.edgeTypes.third, adjList, exactMatch);
-    getAdjacencies(vertex, quad.edgeTypes.fourth, adjList, exactMatch);
+    getAdjacencies(vertex, quad.edgeTypes.first,  exactMatch, adjList);
+    getAdjacencies(vertex, quad.edgeTypes.second, exactMatch, adjList);
+    getAdjacencies(vertex, quad.edgeTypes.third,  exactMatch, adjList);
+    getAdjacencies(vertex, quad.edgeTypes.fourth, exactMatch, adjList);
     return adjList;
   }
 
-  void getAdjacencies(PixelIndex vertex, EdgeTypes matching, std::vector<Edge> &insertInto, bool exactMatch) {
+  void getAdjacencies(PixelIndex vertex, EdgeTypes matching, bool exactMatch, std::vector<Edge> &insertInto) {
     if (matching == 0) {
       return;
     }

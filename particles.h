@@ -30,9 +30,9 @@ public:
   PixelIndex lastPx;
   PixelIndex px; // current particle position (or start of fadeup-chain)
 
+  uint16_t speed = 0; // pixels/second
   uint8_t brightness = 0xFF;
-  uint8_t speed = 0; // pixels/second
-
+  
   CRGB color;
   uint8_t colorIndex; // storage only
   
@@ -285,28 +285,38 @@ public:
     std::vector<Edge> nextEdges;
     switch (flowRule) {
       case priority: {
-        auto adj = graph.adjacencies(particle.px, particle.directions, requireExactEdgeTypeMatch);
-        // logf("edgeCandidates: particle@px %i has %i adjacencies matching directions 0x%x", particle.px, adj.size(), particle.directions.quad);
-        for (auto edge : adj) {
-          // logf("  checking adj %i->%i for edge types 0x%x...", (int)edge.from, (int)edge.to, (int)edge.types);
-          if (isIndexAllowedForParticle(particle, edge.to)) {
-            if (followContinueTo && edge.continueTo) {
-              // continueToPx: stash off the pixel to continue across an intersection where following a single edgeType may be ambiguous
-              particle.continueToPx = edge.to;
-            } else if (followContinueTo && particle.continueToPx == edge.to) {
-              // follow the stashed edge
-              nextEdges.clear();
-              nextEdges.push_back(edge);
-              particle.continueToPx.reset();
-              break;
-            } else if (!edge.continueTo) { // regular edge
-              nextEdges.push_back(edge);
+        // fetch the priority levels separately so that we can fast-path out once we have a viable path after checking each level
+        std::vector<std::vector<Edge> > edgeCandidatesByPriority = { {}, {}, {}, {} };
+        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.first, requireExactEdgeTypeMatch, edgeCandidatesByPriority[0]);
+        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.second, requireExactEdgeTypeMatch, edgeCandidatesByPriority[1]);
+        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.third, requireExactEdgeTypeMatch, edgeCandidatesByPriority[2]);
+        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.fourth, requireExactEdgeTypeMatch, edgeCandidatesByPriority[3]);
+
+        for (auto &adj : edgeCandidatesByPriority) {
+          for (auto edge : adj) {
+            // logf("  checking adj %i->%i for edge types 0x%x...", (int)edge.from, (int)edge.to, (int)edge.types);
+            if (isIndexAllowedForParticle(particle, edge.to)) {
+              if (followContinueTo && edge.continueTo) {
+                // continueToPx: stash off the pixel to continue across an intersection where following a single edgeType may be ambiguous
+                particle.continueToPx = edge.to;
+              } else if (followContinueTo && particle.continueToPx == edge.to) {
+                // follow the stashed edge
+                nextEdges.clear();
+                nextEdges.push_back(edge);
+                particle.continueToPx.reset();
+                break;
+              } else if (!edge.continueTo) { // regular edge
+                nextEdges.push_back(edge);
+              }
             }
+          }
+          if (nextEdges.size() > 0) {
+            break;
           }
         }
         if (nextEdges.size() > 0) {
-          // only ever follow one edge in priority mode
-          nextEdges = {nextEdges[0]};
+          // only ever follow one edge in priority mode, nextEdges should all be the same priority
+          return {nextEdges[random8()%nextEdges.size()]};
         }
         break;
       }
@@ -344,6 +354,7 @@ private:
   bool flowParticle(uint8_t index) {
     if (fadeUpDistance > 0) {
       // scoot the fade-up history
+      // TODO: ring buffer
       for (int d = fadeUpDistance-1; d >= 1; --d) {
         particles[index].fadeHistory[d] = particles[index].fadeHistory[d-1];
       }
@@ -370,6 +381,7 @@ private:
           splitParticle(particles[index], idx);
         }
       }
+      // logf("  flowing particle %i from %i to %i, directions quad = %i, %i, %i, %i", index, (int)particles[index].px, (int)nextEdges.front().to, (int)particles[index].directions.edgeTypes.first, (int)particles[index].directions.edgeTypes.second, (int)particles[index].directions.edgeTypes.third, (int)particles[index].directions.edgeTypes.fourth  );
       particles[index].lastPx = particles[index].px;
       particles[index].px = nextEdges.front().to;
     }
@@ -397,6 +409,7 @@ public:
         if (maxSpawnPerSecond != 0 && mils - lastParticleSpawn < 1000 / maxSpawnPerSecond) {
           continue;
         }
+        // logf("Spawning new particle to maintain population (%i of %i)", particles.size()+1, maxSpawnPopulation);
         addParticle();
         lastParticleSpawn = mils;
       }
@@ -414,13 +427,14 @@ public:
         // don't flow particles on the first frame. this allows pattern code to make their own particles that are displayed before being flowed
         particles[i].lastMove = mils;
       } else {
-        bool particleKilled=false;
         if (particles[i].lifespan != 0 && particles[i].exactAge() > particles[i].lifespan) {
-          particleKilled = killParticle(i);
+          if (killParticle(i)) {
+            continue;
+          }
         }
-        if (!particleKilled && particles[i].speed == 0 && !particles[i].alive) { // dead and not moving
+        if (particles[i].speed == 0 && !particles[i].alive) { // dead and not moving
           eraseParticle(i);
-        } else if (!particleKilled && particles[i].speed != 0 && mils - particles[i].lastMove > 1000/particles[i].speed) {
+        } else if (particles[i].speed != 0 && mils - particles[i].lastMove > 1000/particles[i].speed) {
           if (flowParticle(i)) { // possibly reallocates particles vector or destroys the particle
             if (mils - particles[i].lastMove > 2000/particles[i].speed) {
               particles[i].lastMove = mils;
@@ -429,6 +443,25 @@ public:
               particles[i].lastMove += 1000/particles[i].speed;
             }
           }
+        }
+        // floating point math to handle multiple moves in one frame
+        const float millisPerMove = 1000. / particles[i].speed;
+        float moveAccum = 0;
+        bool firstMove = true;
+        bool particleAlive = true;
+        while (particleAlive && mils - (particles[i].lastMove + moveAccum) > millisPerMove) {
+          if (!firstMove) {
+            // if we only move one step, drawing is handled below
+            CRGB newColor = CRGB(particles[i].color).nscale8(particles[i].brightness);
+            ctx.point(particles[i].px, newColor, blendBrighten);
+            // fadeup will track the n most recent positions and fade them properly afterwards
+          }
+          firstMove = false;
+          particleAlive = flowParticle(i);
+          moveAccum += millisPerMove;
+        }
+        if (particleAlive) {
+          particles[i].lastMove += moveAccum;
         }
       }
     }
