@@ -331,9 +331,6 @@ private:
   PaletteType currentPalette;
   PaletteType targetPalette;
 
-  void assignPalette(PaletteType* palettePtr) {
-    manager.getRandomPalette(palettePtr, minBrightness, maxColorJump);
-  }
   unsigned long lastBlendStep = 0;
   unsigned long lastPaletteChange = 0;
 public:
@@ -344,6 +341,10 @@ public:
   
   PaletteRotation(int minBrightness=0) : minBrightness(minBrightness) { }
   
+  virtual void assignPalette(PaletteType* palettePtr) {
+    manager.getRandomPalette(palettePtr, minBrightness, maxColorJump);
+  }
+
   void initPalettes() {
     if (!doneInit) {
       assignPalette(&currentPalette);
@@ -400,7 +401,7 @@ public:
   }
 
   void randomizePalette() {
-    assignPalette(&currentPalette);
+    manager.getRandomPalette(&currentPalette, minBrightness, maxColorJump);
     startingPalette = currentPalette;
   }
 
