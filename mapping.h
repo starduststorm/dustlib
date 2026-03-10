@@ -203,6 +203,26 @@ public:
       }
     }
   }
+
+  // breadth-first reachability
+  std::vector<PixelIndex> bfr(PixelIndex start, EdgeTypes edgeType, bool exactMatch=false) {
+    std::vector<PixelIndex> result;
+    std::vector<bool> visited(adjList.size(), false);
+    visited[start] = true;
+    result.push_back(start);
+    // Use result vector as the queue; `front` tracks dequeue position
+    for (size_t front = 0; front < result.size(); ++front) {
+      std::vector<Edge> &adj = adjList[result[front]];
+      for (Edge &edge : adj) {
+        auto matched = edge.types & edgeType;
+        if ((exactMatch ? matched == edgeType : matched) && !visited[edge.to]) {
+          visited[edge.to] = true;
+          result.push_back(edge.to);
+        }
+      }
+    }
+    return result;
+  }
 };
 
 #endif
