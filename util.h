@@ -22,7 +22,7 @@ template<class T, class B> struct Derived_from {
   Derived_from() { void(*p)(T*) = constraints; (void)p; }
 };
 
-int freeRAM();
+int freeRAM(int *stackHeadroom = NULL);
 
 #if DEBUG
 #define logdf(format, ...) logf(format, ## __VA_ARGS__)
@@ -392,13 +392,22 @@ void printColor(CHSV color) {
 }
 
 extern "C" char* sbrk(int incr);
-int freeRAM() {
+int freeRAM(int *stackHeadroom) {
+#if defined(ARDUINO_ARCH_RP2040)
+  if (stackHeadroom) {
+    extern char __StackLimit;
+    char top;
+    *stackHeadroom = &top - &__StackLimit;
+  }
+  return rp2040.getFreeHeap();
+#elif defined(__arm__)
   char top;
-#ifdef __arm__
   return &top - reinterpret_cast<char*>(sbrk(0));
 #elif defined(CORE_TEENSY) || (ARDUINO > 103 && ARDUINO != 151)
+  char top;
   return &top - __brkval;
 #else
+  char top;
   return __brkval ? &top - __brkval : &top - __malloc_heap_start;
 #endif
 }
