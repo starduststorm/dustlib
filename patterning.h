@@ -232,6 +232,7 @@ public:
   PRConstructor constructor;
   uint8_t priority = 0;  // highest priority dims background patterns by dimAmount
   uint8_t dimAmount = 0; // if highest priority, dim other patterns by this amount
+  bool animateDim = false; // if dimAmount > 0, whether to animate the background dimming or not
   bool paused = false;
   bool complete = false; // true if the runner's task is complete and the runner itself can be removed
 
@@ -645,6 +646,7 @@ void PatternManager::loop() {
   
   uint8_t maxPriority = 0;
   uint8_t priorityDimAmount = 0;
+  bool animateDim = false;
   if (!testRunner) {
     for (auto runner : runners) {
       runner->loop();
@@ -652,10 +654,11 @@ void PatternManager::loop() {
         // simplified: only considers dimming from the max priority runner.
         maxPriority = runner->priority;
         priorityDimAmount = runner->dimAmount;
+        animateDim = runner->animateDim;
       }
     }
     for (auto runner : runners) {
-      runner->setAlpha(0xFF - (runner->priority < maxPriority ? priorityDimAmount : 0));
+      runner->setAlpha(0xFF - (runner->priority < maxPriority ? priorityDimAmount : 0), animateDim);
       runner->draw(ctx);
     }
   } else {
