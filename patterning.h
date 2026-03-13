@@ -271,7 +271,7 @@ public:
     }
   }
 
-  virtual void draw(DrawingContext ctx) {
+  virtual void draw(DrawingContext &ctx) {
     if (pattern && pattern->isRunning() && !paused) {
       pattern->composeIntoContext(ctx);
     }
@@ -448,7 +448,7 @@ public:
     PatternRunner::loop();
   }
   
-  virtual void draw(DrawingContext ctx) {
+  virtual void draw(DrawingContext &ctx) {
     if (crossfadePattern && !paused) {
       crossfadePattern->composeIntoContext(ctx);
     }
