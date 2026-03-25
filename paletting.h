@@ -359,7 +359,7 @@ public:
     initPalettes();
     if (amt == 0) return;
     bool changed = false;
-    CRGBPalette256 &towards = (amt > 0 ? targetPalette : startingPalette);
+    PaletteType &towards = (amt > 0 ? targetPalette : startingPalette);
     if (amt < 0) {
       amt = -amt;
     }
