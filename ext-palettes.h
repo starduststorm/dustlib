@@ -502,3 +502,31 @@ DEFINE_GRADIENT_PALETTE( Blue_Cyan_Yellow_gp ) {
   191,  42, 255, 45,
   255, 255, 255,  0
 };
+
+// generated high saturation palettes
+
+// Saturated jewel tones: sapphire, amethyst, ruby, topaz, emerald, teal
+// Size: 28 bytes of program space.
+
+DEFINE_GRADIENT_PALETTE( Electric_Jewel_gp ) {
+  0,   5,   5, 220,
+  42, 120,   3, 240,
+  84, 240,   3,  80,
+  127, 255, 150,   3,
+  170,   3, 220,  40,
+  212,   3, 120, 210,
+  255,   5,   5, 220
+};
+
+// Vivid tropical neons: coral, tangerine, chartreuse, mint, cyan, purple
+// Size: 28 bytes of program space.
+
+DEFINE_GRADIENT_PALETTE( Neon_Tropics_gp ) {
+  0, 255,  20,  80,
+  42, 255, 100,   5,
+  84, 200, 255,   5,
+  127,   5, 255, 130,
+  170,   5, 200, 255,
+  212, 130,  10, 255,
+  255, 255,  20,  80
+};

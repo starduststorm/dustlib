@@ -216,6 +216,8 @@ const TProgmemRGBGradientPaletteRef gGradientPalettes[] = {
   BlacK_Magenta_Red_gp, // 30
   BlacK_Red_Magenta_Yellow_gp,
   Blue_Cyan_Yellow_gp,
+  Electric_Jewel_gp,
+  Neon_Tropics_gp,
   Trans_Flag_gp,
   Enby_Flag_gp,
   Genderqueer_Flag_gp,
