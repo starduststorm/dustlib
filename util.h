@@ -16,6 +16,11 @@
 #define MAX(a,b) ((a)>(b)?(a):(b))
 #endif
 
+#ifndef xstr
+#define xstr(s) str(s)
+#define str(s) #s
+#endif
+
 // used to enforce template base class
 template<class T, class B> struct Derived_from {
   static void constraints(T* p) { B* pb = p; (void)pb; }
@@ -81,6 +86,30 @@ void loglf(const char *format, ...)
   va_start(argptr, format);
   _logf(false, format, argptr);
   va_end(argptr);
+}
+
+static constexpr size_t kLineBufSize = 64;
+static char lineBuf[kLineBufSize];
+static size_t linePos = 0;
+
+char *readSerialLine() {
+  while (Serial.available()) {
+    int c = Serial.read();
+    if (c < 0) break;
+    if (c == '\r') continue;
+    if (c == '\n') {
+      lineBuf[linePos] = '\0';
+      linePos = 0;
+      return lineBuf;
+    }
+    if (linePos < kLineBufSize - 1) {
+      lineBuf[linePos++] = (char)c;
+    } else {
+      // overflow: drop the line and resync
+      linePos = 0;
+    }
+  }
+  return NULL;
 }
 
 #undef assert
