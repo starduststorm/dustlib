@@ -430,12 +430,15 @@ class KiCadPCB(object):
 
   def deleteStrayVias(self):
     print("Deleting stray vias if any...")
-    tracks = self.sortedTracks()
+    # iterate a copy because we mutate
+    tracks = list(self.sortedTracks())
+    deleted = set()
     for pt,t in tracks:
-      if isVia(t):
+      if isVia(t) and t not in deleted:
         traceNet = self.getTraceNet(t)
         if traceNet.traceCount() == 0:
           print("  Deleting stray via at {}".format(Point(t.GetPosition())))
+          deleted.add(t)
           self.board.Delete(t.item)
           self.removeItemFromCache(t)
 
