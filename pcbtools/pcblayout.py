@@ -742,10 +742,11 @@ class KiCadPCB(object):
 class TraceBuilder(object):
   defaultTraceWith = 0.2
   class Via(object):
-    def __init__(self, pt):
+    def __init__(self, pt, toLayer=None):
       self.point = pt
+      self.toLayer = toLayer
     def __repr__(self):
-      return "TraceBuilder.Via({})".format(self.point)
+      return "TraceBuilder.Via({}, toLayer={})".format(self.point, self.toLayer)
   class Trace(object):
     def __init__(self, pt):
       self.point = pt
@@ -753,19 +754,18 @@ class TraceBuilder(object):
       return "TraceBuilder.Trace({})".format(self.point)
   
   def multitrace(self, kicadpcb, points, net, startlayer):
-    front = (startlayer=="F.Cu")
+    layer = startlayer
     lastPoint = points[0].point
     for p in points[1:]:
       isVia = type(p) is self.Via
-      p = p.point
-      if p.distance_to(lastPoint) > 0.0001:
-        # then only draw traces if they are long enough
-        # TODO: handle vias to hidden layers
-        kicadpcb.add_copper_trace(lastPoint, p, net, "F.Cu" if front else "B.Cu", width=self.defaultTraceWith)
-        lastPoint = p
+      toLay = p.toLayer if isVia else None
+      pt = p.point
+      if pt.distance_to(lastPoint) > 0.0001:
+        kicadpcb.add_copper_trace(lastPoint, pt, net, layer, width=self.defaultTraceWith)
+        lastPoint = pt
       if isVia:
-        kicadpcb.add_via(p, net)
-        front = not front
+        kicadpcb.add_via(pt, net)
+        layer = toLay if toLay else ("B.Cu" if layer == "F.Cu" else "F.Cu")
     if len(points) == 1:
       p = points[0]
       isVia = type(p) is self.Via
@@ -819,7 +819,10 @@ class TraceBuilder(object):
 
   def translate(self, v):
     for i, p in enumerate(self.points):
-      self.points[i] = type(p)(p.point + v)
+      np = type(p)(p.point + v)
+      if isinstance(p, self.Via):
+        np.toLayer = p.toLayer
+      self.points[i] = np
 
   def rotate(self, theta):
     center = self.startPoint
@@ -853,8 +856,8 @@ class TraceBuilder(object):
     self.addPoint(self.lastPoint().polar_translated(distance, angle))
     return self
   
-  def via(self):
-    self.points.append(self.Via(self.lastPoint()))
+  def via(self, toLayer=None):
+    self.points.append(self.Via(self.lastPoint(), toLayer))
     return self
   
   def xconst(self, x):
@@ -865,6 +868,48 @@ class TraceBuilder(object):
     self.addPoint(self.lastPoint() + (0, y))
     return self
   
+  def _currentEndLayer(self):
+    """ Layer this builder finishes on after walking its own points forward. """
+    layer = self.startlayer
+    for p in self.points:
+      if isinstance(p, self.Via):
+        layer = p.toLayer if p.toLayer else ("B.Cu" if layer == "F.Cu" else "F.Cu")
+    return layer
+
+  def _reversedForMerge(self):
+    """ Return (reversedPoints, finalLayer) so that appending reversedPoints to a path already
+     on this builder's finalLayer reproduces this builder's per-segment layer assignment in reverse """
+    layer = self.startlayer
+    layerEntering = []
+    for p in self.points:
+      layerEntering.append(layer)
+      if isinstance(p, self.Via):
+        layer = p.toLayer if p.toLayer else ("B.Cu" if layer == "F.Cu" else "F.Cu")
+    finalLayer = layer
+    rev = []
+    for i in range(len(self.points) - 1, -1, -1):
+      p = self.points[i]
+      if isinstance(p, self.Via):
+        # only rewrite directed vias; leave undirected vias as self-inverse toggles
+        rev.append(self.Via(p.point, layerEntering[i] if p.toLayer else None))
+      else:
+        rev.append(self.Trace(p.point))
+    return rev, finalLayer
+
+  def _mergeReversed(self, othertb):
+    """ Append othertb's points to self in reverse traversal order, including flipping via src/dst """
+    if not any(isinstance(p, self.Via) and p.toLayer for p in othertb.points):
+      for p in othertb.points[::-1]:
+        self.addPoint(p)
+      return
+    rev, otherFinal = othertb._reversedForMerge()
+    selfFinal = self._currentEndLayer()
+    assert selfFinal == otherFinal, \
+      "merge layer mismatch: self ends on {} but reversed path starts on {}; " \
+      "via both halves to the same layer before merging".format(selfFinal, otherFinal)
+    for p in rev:
+      self.addPoint(p)
+
   def octPathCloseTo(self, end):
     """ Close the path to end pcbnew.PAD or TraceBuilder using a diagonal followed by a cardinal trace """
     othertb = None
@@ -885,13 +930,12 @@ class TraceBuilder(object):
       # y closer
       self.addPoint(lp + (sign(distance.x)*abs(distance.y), distance.y))
     if othertb:
-      for p in othertb.points[::-1]:
-        self.addPoint(p)
-    else: 
+      self._mergeReversed(othertb)
+    else:
       self.addPoint(end)
     return self
 
-  def joinWithCardialAtSplitRatio(self, ratio, other):
+  def joinWithCardinalAtSplitRatio(self, ratio, other):
     """ Close the path to other TraceBuilder using a cardinal-direction bar at ratio between the height-gap or width-gap (whichever is less) of the last points on each TraceBuilder """
     assert(0 <= ratio <= 1)
     distance = other.lastPoint() - self.lastPoint()
@@ -903,8 +947,7 @@ class TraceBuilder(object):
       # y closer
       self.addPoint(self.lastPoint() + (sign(distance.x)*abs(distance.y)*ratio, distance.y*ratio))
       self.addPoint(other.lastPoint() - (sign(distance.x)*abs(distance.y)*(1-ratio), distance.y*(1-ratio)))
-    for p in other.points[::-1]:
-      self.addPoint(p)
+    self._mergeReversed(other)
     return self
 
 ## Pixel #############################################################################
