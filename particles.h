@@ -418,7 +418,9 @@ public:
         if (particles[i].lifespan != 0 && particles[i].exactAge() > particles[i].lifespan) {
           particleKilled = killParticle(i);
         }
-        if (!particleKilled && mils - particles[i].lastMove > 1000/particles[i].speed) {
+        if (!particleKilled && particles[i].speed == 0 && !particles[i].alive) { // dead and not moving
+          eraseParticle(i);
+        } else if (!particleKilled && particles[i].speed != 0 && mils - particles[i].lastMove > 1000/particles[i].speed) {
           if (flowParticle(i)) { // possibly reallocates particles vector or destroys the particle
             if (mils - particles[i].lastMove > 2000/particles[i].speed) {
               particles[i].lastMove = mils;
