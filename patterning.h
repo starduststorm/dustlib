@@ -126,6 +126,25 @@ public:
   }
 };
 
+// closure as one-shot pattern
+class InlineDrawingPattern : public Pattern {
+public:
+  using DrawTick = std::function<bool(DrawingContext &ctx, unsigned long elapsed)>; // returns false when finished
+  DrawTick tick;
+  InlineDrawingPattern(DrawTick tick) : tick(tick) { }
+  void setup() {
+    ctx.leds.fill_solid(CRGB::Black);
+  }
+  void update() {
+    if (!tick(ctx, runTime())) {
+      stop();
+    }
+  }
+  const char *description() {
+    return "InlineDrawing";
+  }
+};
+
 /* ================================================================================ */
 
 class PatternRunner;
@@ -195,6 +214,9 @@ public:
   // Creates pattern with constructor immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
   // Only intended to be used with patterns that end on their own.
   std::shared_ptr<PatternRunner> runOneShotPattern(PRConstructor constructor, uint8_t priority=0, uint8_t dimAmount=0, PRCompletion completion=nullptr);
+
+  // closure as one-shot pattern; destroyed if tick(..) == false
+  std::shared_ptr<PatternRunner> runOneShotDrawing(InlineDrawingPattern::DrawTick tick, uint8_t priority, uint8_t dimAmount=0xFF);
 
   // Creates pattern of given type and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
   // Only intended to be used with patterns that end on their own.
@@ -562,6 +584,13 @@ std::shared_ptr<PatternRunner> PatternManager::runOneShotPattern(PRConstructor c
   auto ptr = addRunner(runner);
   runner->start();
   return ptr;
+}
+
+// closure as one-shot pattern; destroyed if tick(..) == false
+std::shared_ptr<PatternRunner> PatternManager::runOneShotDrawing(InlineDrawingPattern::DrawTick tick, uint8_t priority, uint8_t dimAmount) {
+  return runOneShotPattern([tick](PatternRunner &) {
+    return (Pattern *)new InlineDrawingPattern(tick);
+  }, priority, dimAmount);
 }
 
 // Creates pattern with constructor immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
