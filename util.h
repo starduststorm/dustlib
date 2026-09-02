@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <stdarg.h>     /* va_list, va_start, va_arg, va_end */
 #include <functional>
+#include <initializer_list>
 #include <FastLED.h>
 
 #define ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))
@@ -50,17 +51,32 @@ static int vasprintf(char** strp, const char* fmt, va_list ap) {
   return vsnprintf(*strp, size, fmt, ap);
 }
 
+#if defined(ARDUINO_ARCH_RP2040)
+#include "pico/mutex.h"
+// Both cores on rp2040 can log and the USB CDC write path is not core-safe:
+// without this, concurrent logs drop characters mid-line.
+auto_init_mutex(_logMutex);
+#define LOG_LOCK() mutex_enter_blocking(&_logMutex)
+#define LOG_UNLOCK() mutex_exit(&_logMutex)
+#else
+#define LOG_LOCK()
+#define LOG_UNLOCK()
+#endif
+
 static void _logf(bool newline, const char *format, va_list argptr)
 {
   if (!Serial) return;
   if (strlen(format) == 0) {
     if (newline) {
+      LOG_LOCK();
       Serial.println();
+      LOG_UNLOCK();
     }
     return;
   }
   char *buf;
   vasprintf(&buf, format, argptr);
+  LOG_LOCK();
   if (newline) {
     Serial.println(buf ? buf : "LOGF MEMORY ERROR");
   } else {
@@ -69,6 +85,7 @@ static void _logf(bool newline, const char *format, va_list argptr)
 #if DEBUG
   Serial.flush();
 #endif
+  LOG_UNLOCK();
   free(buf);
 }
 
@@ -133,6 +150,26 @@ void assert_func(bool result, const char *pred, const char *reasonFormat, ...) {
   __VA_ARGS__; \
   auto __end##name = micros(); \
   logf("%s took %ius", #name, (__end##name - __start##name));
+
+// Framerate-invariance helper for effects that were tuned as once-per-frame steps at some baseline
+// framerate (IIR smoothing, spawn checks, palette nudges): returns how many baseline-frames' worth
+// of wall clock have elapsed since the last call, carrying the sub-frame remainder.
+struct BaselineStepper {
+  unsigned long lastMS = 0;
+  uint16_t carry = 0;
+  int steps(uint16_t baselineFPS, int maxSteps=30) {
+    unsigned long now = millis();
+    if (lastMS == 0) {
+      lastMS = now;
+      return 1;
+    }
+    uint32_t acc = carry + (uint32_t)min(now - lastMS, (unsigned long)1000) * baselineFPS;
+    lastMS = now;
+    int s = acc / 1000;
+    carry = acc % 1000;
+    return min(s, maxSteps); // bound work after a stall
+  }
+};
 
 template <typename T>
 inline int sgn(T val) {
@@ -204,11 +241,8 @@ class FrameCounter {
       if (fps > 0) {
         int delayms = 1000 / fps - (millis() - lastClamp);
         if (delayms > 0) {
-#ifdef FASTLED_VERSION
-          FastLED.delay(delayms);
-#else
+          // don't use FastLED.delay because it just bitbangs pixels the whole time
           delay(delayms);
-#endif
         }
         lastClamp = millis();
       }
@@ -228,7 +262,8 @@ class FrameCounter {
 
     void idleDelay(unsigned long mils) {
       if (fpsAssertionCount == 0) {
-        FastLED.delay(mils);
+        // don't use FastLED.delay because it just bitbangs pixels the whole time
+        delay(mils);
       }
     }
 };
