@@ -23,12 +23,14 @@ volatile int rawSamplesRead = 0;
 
 class AudioProcessing {
   int peakAccum = 0;
+  BaselineStepper peakStepper;
 public:
   int bufferSize;
   int sampleRate;
 
   int ignoreSamples = 3; // ignore the first n samples of each read
   int peakFrames = 6; // frames across which to compute peak amplitude
+  int peakBaselineMagic = 170; // tuning magic
   
   AudioProcessing(int sampleRate) : sampleRate(sampleRate) { }
 
@@ -46,7 +48,9 @@ public:
       }
       // logf("min_sample = %i, max_sample = %i", min_sample, max_sample);
       int maxAmplitude = max(abs(min_sample), abs(max_sample));
-      peakAccum = (peakFrames * peakAccum + maxAmplitude) / (peakFrames + 1);
+      for (int k = peakStepper.steps(peakBaselineMagic); k > 0; --k) {
+        peakAccum = (peakFrames * peakAccum + maxAmplitude) / (peakFrames + 1);
+      }
     }
     return peakAccum;
   }
@@ -182,9 +186,13 @@ class FFTProcessing {
   int16_t *spectrum;
   int16_t *spectrumAccum;
   int spectrumAccumSamples{30};
-  int16_t *samples;
+  int16_t *samples;      // rolling window of the newest windowSize samples
+  int16_t *readChunk;    // scratch for one drain of the driver's buffer
+  int newSamples{0};     // real audio shifted in since the last transform
   AudioProcessing &audio;
   FFTFrame dataFrame{0};
+  bool frameStale{true};
+  BaselineStepper spectrumAccumStepper;
   int subscribeCount{0};
   bool initialized{false};
 public:
@@ -194,16 +202,25 @@ public:
   void initialize() {
     assert(fftBinSizes == NULL, "fft double initialize");
     fftBinSizes = new int[numBins];
-    spectrum = new int16_t[numBins];
-    spectrumAccum = new int16_t[numBins];
-    samples = new int16_t[windowSize];
+    spectrum = new int16_t[numBins]();
+    spectrumAccum = new int16_t[numBins]();
+    samples = new int16_t[windowSize]();
+    readChunk = new int16_t[windowSize];
     getFFTBins(numBins, windowSize/2, fftBinSizes);
+    if (hopSamples == 0) {
+      hopSamples = windowSize/2; // 50% overlap: one transform per half-window of new audio
+    }
+    // hand out a valid (silent) frame until enough audio has arrived for the first real transform
+    dataFrame = FFTFrame(numBins);
+    dataFrame.spectrum = spectrum;
+    dataFrame.smoothSpectrum = (spectrumAccumSamples ? spectrumAccum : NULL);
     initialized = true;
   }
 
   ~FFTProcessing() {
     delete [] fftBinSizes;
     delete [] samples;
+    delete [] readChunk;
     delete [] spectrum;
     delete [] spectrumAccum;
   }
@@ -221,28 +238,60 @@ public:
     }
   }
 
+  int spectrumAccumBaselineMagic = 130;
+
+  // How much new audio has to arrive before another transform is worth running. 
+  // The window only turns over as fast as the mic fills it
+  int hopSamples = 0;
+
+  // bench shim: when >0, spectrum bins are replaced with a deterministic rotating comb at this level so
+  // sound patterns can be A/B tested without ambient audio. The FFT still runs for realistic CPU load.
+  int benchTestLevel = 0;
+
   void frameReset() {
-    if (initialized) {
-      bzero(&dataFrame, sizeof(dataFrame));
+    frameStale = true;
+  }
+
+  // Drain whatever the mic has produced into the tail of the rolling window, oldest samples falling off
+  // the front. Returns how many real samples arrived. The PDM driver hands out one 32-sample chunk at a
+  // time and won't start another until this one is read, so most polls at video framerate get nothing.
+  int fillWindow() {
+    int total = 0;
+    size_t bytesRead;
+    while ((bytesRead = audio.read(readChunk, windowSize * sizeof(readChunk[0]))) > 0) {
+      int n = bytesRead / sizeof(readChunk[0]);
+      if (n >= windowSize) {
+        // we fell far enough behind that the whole window is replaced; keep only the newest samples
+        memcpy(samples, readChunk + (n - windowSize), windowSize * sizeof(samples[0]));
+        total = windowSize;
+        break;
+      }
+      memmove(samples, samples + n, (windowSize - n) * sizeof(samples[0]));
+      memcpy(samples + windowSize - n, readChunk, n * sizeof(samples[0]));
+      total += n;
+      if (total >= windowSize) break;
     }
+    return min(total, windowSize);
   }
 
   FFTFrame getDataFrame() {
     if (!initialized) {
       initialize();
     }
-    if (dataFrame.size != 0) {
+    newSamples = min(newSamples + fillWindow(), windowSize);
+
+    // frame is still the newest data we have
+    if (!frameStale || newSamples < hopSamples) {
       return dataFrame;
     }
+    frameStale = false;
+    newSamples = 0;
 
     kiss_fft_scalar fft_in[windowSize];
     kiss_fft_cpx fft_out[windowSize];
     kiss_fftr_cfg cfg = kiss_fftr_alloc(windowSize,false,0,0);
-  
-    bzero(samples, windowSize * sizeof(samples[0]));
-    
-    int samplesRead = audio.read(samples, windowSize*sizeof(samples[0]));
-    int peak = audio.processAmplitude(samples, samplesRead);
+
+    int peak = audio.processAmplitude(samples, windowSize * sizeof(samples[0]));
 
     // fill fourier transform input while subtracting DC component
     int64_t sum = 0;
@@ -254,6 +303,7 @@ public:
     kiss_fftr(cfg, fft_in, fft_out);
     
     // any frequency bin over windowSize/2 is aliased (nyquist sampling theorum)
+    const int accumSteps = (spectrumAccumSamples ? spectrumAccumStepper.steps(spectrumAccumBaselineMagic) : 0);
     for (int b = 0; b < numBins; b++) {
       int stopIndex = (b < numBins - 1 ? fftBinSizes[b + 1] - 1 : windowSize/2 - 1);
       int64_t powerSum= 0;
@@ -266,19 +316,16 @@ public:
       powerSum /= 16384.;
 
       spectrum[b] = powerSum;
-      if (spectrumAccumSamples) {
-        spectrumAccum[b] = 1000 * (spectrumAccum[b] * spectrumAccumSamples + spectrum[b]) / (spectrumAccumSamples + 1) / 1000;
+      if (benchTestLevel > 0) {
+        spectrum[b] = ((b + (int)(millis()/300)) % 3 == 0 ? benchTestLevel : 0);
+      }
+      for (int k = accumSteps; k > 0; --k) {
+        spectrumAccum[b] = (spectrumAccum[b] * spectrumAccumSamples + spectrum[b]) / (spectrumAccumSamples + 1);
       }
     }
     kiss_fft_free(cfg);
-    
-    FFTFrame frame(numBins);
-    frame.spectrum = spectrum;
-    if (spectrumAccumSamples) {
-      frame.smoothSpectrum = spectrumAccum;
-    }
-    frame.peak = peak;
-    dataFrame = frame;
+
+    dataFrame.peak = peak;
     return dataFrame;
   }
 
