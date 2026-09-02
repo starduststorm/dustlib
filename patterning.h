@@ -29,18 +29,26 @@ private:
   uint8_t targetAlpha = 0xFF;
   uint8_t animationSpeed = 1;
   bool firstAlphaSet = false;
+  static constexpr uint16_t tuningMagic = 200;
+  uint16_t alphaCarry = 0;
+  unsigned long lastAlphaTick = 0;
 public:
   uint8_t alpha = 0xFF;
   uint8_t maxAlpha = 0xFF; // convenience, scales all brightness values by this amount
   virtual ~Composable() { }
 
   DrawingContext ctx;
-  
+
   void setAlpha(uint8_t b, bool animated=false, uint8_t speed=1) {
     if (!firstAlphaSet) {
       // decline to animate the first alpha set on brand new composables so that we start from whatever the baseline is
       animated = false;
       firstAlphaSet = true;
+    }
+    if (b != targetAlpha) {
+      // new animation target: measure elapsed time from here
+      lastAlphaTick = 0;
+      alphaCarry = 0;
     }
     targetAlpha = b;
     animationSpeed = speed;
@@ -51,10 +59,20 @@ public:
 
   void composeIntoContext(DrawingContext &otherContext) {
     if (alpha != targetAlpha) {
-      if (abs(targetAlpha - alpha) < animationSpeed) {
+      unsigned long now = millis();
+      if (lastAlphaTick == 0) {
+        lastAlphaTick = now;
+      }
+      uint32_t acc = alphaCarry + (uint32_t)animationSpeed * tuningMagic * min(now - lastAlphaTick, 100UL);
+      lastAlphaTick = now;
+      int step = acc / 1000;
+      alphaCarry = acc % 1000;
+      if (abs(targetAlpha - alpha) <= step) {
         alpha = targetAlpha;
+        lastAlphaTick = 0;
+        alphaCarry = 0;
       } else {
-        alpha += animationSpeed * sgn((int)targetAlpha - (int)alpha);
+        alpha += step * sgn((int)targetAlpha - (int)alpha);
       }
     }
     if (alpha > 0) {
@@ -80,10 +98,11 @@ public:
   }
 
   void loop() {
+    unsigned long frameStart = millis();
     if (updateWhileHidden || alpha > 0) {
       update();
     }
-    lastUpdateTime = millis();
+    lastUpdateTime = frameStart;
   }
 
   virtual void setup() { }
@@ -671,13 +690,14 @@ uint8_t PatternManager::highestPriority() {
 void PatternManager::setup() { }
 
 void PatternManager::loop() {
-  ctx.leds.fill_solid(CRGB::Black);
-  
+  // we don't clear the buffer until we know the blending technique we're using
+  ctx.pendingClear = true;
+
   uint8_t maxPriority = 0;
   uint8_t priorityDimAmount = 0;
   bool animateDim = false;
   if (!testRunner) {
-    for (auto runner : runners) {
+    for (const auto &runner : runners) {
       runner->loop();
       if (runner->priority > maxPriority && runner->pattern && !runner->paused) {
         // simplified: only considers dimming from the max priority runner.
@@ -686,7 +706,7 @@ void PatternManager::loop() {
         animateDim = runner->animateDim;
       }
     }
-    for (auto runner : runners) {
+    for (const auto &runner : runners) {
       runner->setAlpha(0xFF - (runner->priority < maxPriority ? priorityDimAmount : 0), animateDim);
       runner->draw(ctx);
     }
@@ -696,6 +716,7 @@ void PatternManager::loop() {
     testRunner->setAlpha(0xFF);
     testRunner->draw(ctx);
   }
+  ctx.resolvePendingClear();
   for (auto it = runners.begin(); it < runners.end(); ) {
     if ((*it)->complete) {
       logdf("Removing a complete runner");
