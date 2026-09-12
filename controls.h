@@ -96,8 +96,15 @@ class SPSTButton : public HardwareControl {
   
   ButtonHandler *handlers[handlerTypeCount] = {0};
 
-  virtual void initPin(int pin) {
+  virtual void initPin() {
     pinMode(pin, pressedState == LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
+  }
+
+  void initIfNeeded() {
+    if (!didInit) {
+      initPin();
+      didInit = true;
+    }
   }
 
   void onHandler(HandlerType type, ButtonHandler handler) {
@@ -115,10 +122,6 @@ class SPSTButton : public HardwareControl {
   }
 
   void update() {
-    if (!didInit) {
-      initPin(pin);
-      didInit = true;
-    }
     if (pauseEvents) {
       return;
     }
@@ -206,6 +209,7 @@ public:
   }
 
   virtual bool isButtonPressed() {
+    initIfNeeded();
     return digitalRead(pin) == pressedState;
   }
 
