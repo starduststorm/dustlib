@@ -48,8 +48,10 @@ private:
     }
   }
 
-  unsigned long lastTick = 0;
-  uint16_t fadeDownAccum = 0;
+  unsigned long lastFadeTick = 0;
+  // Sub-count fade precision: one fractional byte per channel, allocated on first fadeToBlackBy16().
+  // The visible value of a channel is leds[i].raw[c] + fadeFrac[3*i+c]/256.
+  uint8_t *fadeFrac = nullptr;
 public:
   PixelSetType<COUNT> leds;
   const uint16_t count;
@@ -61,6 +63,11 @@ public:
   PixelStorage() : count(COUNT) {
     leds.fill_solid(CRGB::Black);
   }
+  ~PixelStorage() {
+    delete[] fadeFrac;
+  }
+  PixelStorage(const PixelStorage &) = delete;
+  PixelStorage &operator=(const PixelStorage &) = delete;
 
   void resolvePendingClear() {
     if (pendingClear) {
@@ -107,17 +114,39 @@ public:
     }
   }
 
-  // framerate-invariant high-granularity fadedown
+  // Framerate-invariant, hue-preserving fadedown.
+  // fadeDown is in 1/256 counts per millisecond
+  // Each channel is faded as 8 integer bits + 8 fractional bits kept in fadeFrac
   void fadeToBlackBy16(uint16_t fadeDown) {
     resolvePendingClear();
-    unsigned long mils = millis();
-    if (lastTick) {
-      fadeDownAccum += fadeDown * (mils - lastTick);
-      uint8_t fadeDownThisFrame = fadeDownAccum >> 8;
-      this->leds.fadeToBlackBy(fadeDownThisFrame);
-      fadeDownAccum -= fadeDownThisFrame << 8;
+    unsigned long now = micros();
+    if (lastFadeTick) {
+      uint32_t elapsedMicros = (uint32_t)(now - lastFadeTick);
+      // fraction to remove this frame, in 1/65536 units: (fadeDown/256 counts per ms) / 256 counts
+      uint32_t removed = ((uint64_t)fadeDown * elapsedMicros) / 1000;
+      if (removed >= 65536) {
+        leds.fill_solid(CRGB::Black);
+        if (fadeFrac) memset(fadeFrac, 0, COUNT * 3);
+      } else if (removed > 0) {
+        if (!fadeFrac) {
+          fadeFrac = new uint8_t[COUNT * 3]();
+        }
+        const uint32_t keep = 65536 - removed;
+        uint8_t *frac = fadeFrac;
+        for (int i = 0; i < COUNT; ++i, frac += 3) {
+          uint8_t *px = leds[i].raw;
+          for (int c = 0; c < 3; ++c) {
+            uint32_t x = ((uint32_t)px[c] << 8) | frac[c];
+            if (x) {
+              x = (x * keep) >> 16;
+              px[c] = x >> 8;
+              frac[c] = x & 0xFF;
+            }
+          }
+        }
+      }
     }
-    lastTick = mils;
+    lastFadeTick = now;
   }
 };
 
