@@ -149,6 +149,27 @@ public:
   }
 };
 
+class ShimAudioProcessing : public AudioProcessing {
+  uint32_t prngState = 0xACE1u;
+public:
+  ShimAudioProcessing(int sampleRate=DEFAULT_SAMPLE_RATE) : AudioProcessing(sampleRate) { }
+
+  virtual void subscribe() { }
+  virtual void unsubscribe() { }
+
+  virtual size_t read(int16_t *buffer, size_t size) {
+    size_t numSamples = size / sizeof(buffer[0]);
+    for (size_t i = 0; i < numSamples; ++i) {
+      // xorshift32
+      prngState ^= prngState << 13;
+      prngState ^= prngState >> 17;
+      prngState ^= prngState << 5;
+      buffer[i] = (int16_t)(prngState & 0xFFFF);
+    }
+    return size;
+  }
+};
+
 class AmplitudeReceiver {
   AudioProcessing &audio;
   int16_t samples[DEFAULT_NSAMP];
