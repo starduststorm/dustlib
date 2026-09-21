@@ -53,8 +53,7 @@ static int vasprintf(char** strp, const char* fmt, va_list ap) {
 
 #if defined(ARDUINO_ARCH_RP2040)
 #include "pico/mutex.h"
-// Both cores on rp2040 can log and the USB CDC write path is not core-safe:
-// without this, concurrent logs drop characters mid-line.
+// logf() from both cores support
 auto_init_mutex(_logMutex);
 #define LOG_LOCK() mutex_enter_blocking(&_logMutex)
 #define LOG_UNLOCK() mutex_exit(&_logMutex)
@@ -63,11 +62,30 @@ auto_init_mutex(_logMutex);
 #define LOG_UNLOCK()
 #endif
 
+// Capture LOG_BOOT_CAPTURE_BYTES bytes max of serial output before first serial connection. read it back with bootLog()
+#ifndef LOG_BOOT_CAPTURE_BYTES
+#define LOG_BOOT_CAPTURE_BYTES 0
+#endif
+#if LOG_BOOT_CAPTURE_BYTES
+static char _bootLog[LOG_BOOT_CAPTURE_BYTES + 1];
+static size_t _bootLogLen = 0;
+static inline const char *bootLog() { return _bootLog; }
+// call with the log lock held
+static void _bootLogAppend(const char *text, bool newline) {
+  for (const char *c = text; *c && _bootLogLen < LOG_BOOT_CAPTURE_BYTES; ++c) _bootLog[_bootLogLen++] = *c;
+  if (newline && _bootLogLen < LOG_BOOT_CAPTURE_BYTES) _bootLog[_bootLogLen++] = '\n';
+}
+#define BOOT_LOG_OPEN() (_bootLogLen < LOG_BOOT_CAPTURE_BYTES)
+#else
+#define BOOT_LOG_OPEN() false
+#endif
+
 static void _logf(bool newline, const char *format, va_list argptr)
 {
-  if (!Serial) return;
+  bool haveSerial = (bool)Serial;
+  if (!haveSerial && !BOOT_LOG_OPEN()) return;
   if (strlen(format) == 0) {
-    if (newline) {
+    if (newline && haveSerial) {
       LOG_LOCK();
       Serial.println();
       LOG_UNLOCK();
@@ -77,14 +95,19 @@ static void _logf(bool newline, const char *format, va_list argptr)
   char *buf;
   vasprintf(&buf, format, argptr);
   LOG_LOCK();
-  if (newline) {
-    Serial.println(buf ? buf : "LOGF MEMORY ERROR");
-  } else {
-    Serial.print(buf ? buf : "LOGF MEMORY ERROR");
-  }
-#if DEBUG
-  Serial.flush();
+#if LOG_BOOT_CAPTURE_BYTES
+  if (buf && BOOT_LOG_OPEN()) _bootLogAppend(buf, newline);
 #endif
+  if (haveSerial) {
+    if (newline) {
+      Serial.println(buf ? buf : "LOGF MEMORY ERROR");
+    } else {
+      Serial.print(buf ? buf : "LOGF MEMORY ERROR");
+    }
+#if DEBUG
+    Serial.flush();
+#endif
+  }
   LOG_UNLOCK();
   free(buf);
 }
