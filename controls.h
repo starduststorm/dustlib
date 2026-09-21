@@ -3,6 +3,9 @@
 
 #include <vector>
 #include <functional>
+#if defined(ARDUINO_ARCH_RP2040)
+#include "touchpio.h"
+#endif
 
 // TODO: rework with interrupts
 
@@ -243,6 +246,23 @@ public:
     onHandler(buttonUp, handler);
   }
 };
+
+#if defined(ARDUINO_ARCH_RP2040)
+
+// One pad of a TouchPIO as a button with all the usual press handlers.
+class TouchButton : public SPSTButton {
+  TouchPIO &touch;
+  void initPin() override { } // TouchPIO::begin owns the pins
+public:
+  const uint8_t padIndex;
+  TouchButton(TouchPIO &touch, uint8_t padIndex) : SPSTButton(-1), touch(touch), padIndex(padIndex) { }
+
+  bool isButtonPressed() override {
+    return touch.isTouched(padIndex);
+  }
+};
+
+#endif
 
 /* --------------------- */
 
