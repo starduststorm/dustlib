@@ -1,4 +1,4 @@
-#ifndef AUDIO_H
+#pragma once
 
 #include <PDM.h>
 #include <I2S.h>
@@ -428,4 +428,3 @@ public:
   }
 };
 
-#endif
