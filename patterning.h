@@ -105,6 +105,8 @@ public:
     lastUpdateTime = frameStart;
   }
 
+  static bool wantsToRun() { return true; }
+
   virtual void setup() { }
 
   void stop() {
@@ -189,7 +191,10 @@ class PatternManager {
   PatternRunner* testRunner = NULL; 
 
   // constructors for all registered patterns
-  std::vector<Pattern * (*)(void)> patternConstructors; 
+  std::vector<Pattern * (*)(void)> patternConstructors;
+
+  // optional run-conditions for registered patterns, parallel to patternConstructors
+  std::vector<PRPredicate> patternConditions;
 
   // pattern groups (map:group index->constructor index) for indexed and random runners (default group 0)
   std::map<int, std::vector<int> > patternGroupMap;
@@ -216,8 +221,9 @@ public:
   bool hasTestRunner();
   
   // Add a pattern class to the patterns group list for the random and indexed runners to use. Returns pattern index.
+  // Optional runCondition is checked when a runner is about to select the pattern; return 0 to skip it.
   template<class T>
-  unsigned int registerPattern(int groupID=0);
+  unsigned int registerPattern(int groupID=0, PRPredicate runCondition=[](PatternRunner&) { return 0xFF; });
 
   // Patterns can be registered to a group index so that multiple indexed lists can be maintained. Groups can be ignored to operate on group 0.
   unsigned int groupAddPatternIndex(unsigned int patternIndex, int groupID);
@@ -225,6 +231,11 @@ public:
   std::vector<int> patternIndexesInGroup(int groupID);
   Pattern *createPattern(unsigned int patternIndex, int groupID);
   bool isValidGroupIndex(unsigned int patternIndex, int groupID);
+
+  // Checks the runCondition registered for the pattern at patternIndex in groupID; true if no condition was registered
+  bool patternCanRun(unsigned int patternIndex, int groupID, PatternRunner &runner);
+  // Indexes in groupID whose runConditions currently pass; falls back to all indexes if none pass (rather than going dark)
+  std::vector<int> runnablePatternIndexesInGroup(int groupID, PatternRunner &runner);
 
   // Creates a random pattern selected from the given groupID and immediately runs it; destroys the pattern once it's stopped. Dims other patterns by dimAmount if highest priority.
   // Only intended to be used with patterns that end on their own.
@@ -402,12 +413,25 @@ public:
   }
   
   void nextPattern() {
-    patternIndex = (patternIndex + 1) % manager.patternGroupMap[groupID].size();
+    unsigned int groupSize = manager.patternGroupMap[groupID].size();
+    // skip patterns whose runCondition doesn't pass; if none pass we end up back at the next index anyway
+    for (unsigned int step = 0; step < groupSize; ++step) {
+      patternIndex = (patternIndex + 1) % groupSize;
+      if (manager.patternCanRun(patternIndex, groupID, *this)) {
+        break;
+      }
+    }
     runPatternAtIndex(patternIndex);
   }
 
   void previousPattern() {
-    patternIndex = mod_wrap(patternIndex - 1, manager.patternGroupMap[groupID].size());
+    unsigned int groupSize = manager.patternGroupMap[groupID].size();
+    for (unsigned int step = 0; step < groupSize; ++step) {
+      patternIndex = mod_wrap(patternIndex - 1, groupSize);
+      if (manager.patternCanRun(patternIndex, groupID, *this)) {
+        break;
+      }
+    }
     runPatternAtIndex(patternIndex);
   }
 
@@ -541,9 +565,10 @@ bool PatternManager::hasTestRunner() {
 
 // Add a pattern class to the patterns list for the random and indexed runners to use. Returns group pattern index.
 template<class T>
-unsigned int PatternManager::registerPattern(int groupID) {
+unsigned int PatternManager::registerPattern(int groupID, PRPredicate runCondition) {
   int patternIndex = patternConstructors.size();
   patternConstructors.push_back(&(construct<T>));
+  patternConditions.push_back(runCondition);
   return groupAddPatternIndex(patternIndex, groupID);
 }
 
@@ -578,6 +603,32 @@ Pattern *PatternManager::createPattern(unsigned int patternIndex, int groupID) {
 bool PatternManager::isValidGroupIndex(unsigned int patternIndex, int groupID) {
   auto group = patternGroupMap[groupID];
   return patternIndex < group.size();
+}
+
+bool PatternManager::patternCanRun(unsigned int patternIndex, int groupID, PatternRunner &runner) {
+  auto group = patternGroupMap[groupID];
+  assert(patternIndex < group.size(), "patternCanRun: Pattern %i group %i out of bounds size %i for group", patternIndex, groupID, group.size());
+  if (patternIndex < group.size()) {
+    return patternConditions[group[patternIndex]](runner) > 0;
+  }
+  return false;
+}
+
+std::vector<int> PatternManager::runnablePatternIndexesInGroup(int groupID, PatternRunner &runner) {
+  unsigned int groupSize = patternGroupMap[groupID].size();
+  std::vector<int> runnable;
+  for (unsigned int i = 0; i < groupSize; ++i) {
+    if (patternCanRun(i, groupID, runner)) {
+      runnable.push_back(i);
+    }
+  }
+  if (runnable.empty()) {
+    // no runCondition passes right now; make everything eligible rather than going dark
+    for (unsigned int i = 0; i < groupSize; ++i) {
+      runnable.push_back(i);
+    }
+  }
+  return runnable;
 }
 
 // Convenience
@@ -636,25 +687,24 @@ inline ConditionalPatternRunner* PatternManager::setupConditionalRunner(PRPredic
 
 // Start a random pattern from a pattern group with optional crossfade
 CrossfadingPatternRunner* PatternManager::setupRandomRunner(unsigned long runDuration, unsigned long crossfadeDuration, int groupID) {
-  auto patternGroup = this->patternGroupMap[groupID];
-  unsigned int startPatternIndex = random16(patternGroup.size());
-
-  CrossfadingPatternRunner *runner = new CrossfadingPatternRunner(*this, startPatternIndex, groupID);
-  runner->patternTimeout = 40*1000;
+  CrossfadingPatternRunner *runner = new CrossfadingPatternRunner(*this, 0, groupID);
+  auto runnable = runnablePatternIndexesInGroup(groupID, *runner);
+  if (!runnable.empty()) {
+    runner->setPatternIndex(runnable[random16(runnable.size())]);
+  }
   runner->timeoutRule = [this](CrossfadingPatternRunner &xr) {
     int groupID;
     auto curIndex = xr.getPatternIndex(&groupID);
-    auto patternGroup = this->patternGroupMap[groupID];
-    if (patternGroup.size() < 2) {
-      return;
+    auto runnable = this->runnablePatternIndexesInGroup(groupID, xr);
+    // don't re-select the current pattern unless it's the only one that can run
+    if (runnable.size() > 1) {
+      runnable.erase(std::remove(runnable.begin(), runnable.end(), (int)curIndex), runnable.end());
     }
-    unsigned int nextPattern;
-    do {
-      nextPattern = random16(patternGroup.size());
-    } while (nextPattern == curIndex);
-    xr.setPatternIndex(nextPattern);
+    if (!runnable.empty()) {
+      xr.setPatternIndex(runnable[random16(runnable.size())]);
+    }
   };
-  
+
   runner->patternTimeout = runDuration;
   runner->crossfadeDuration = crossfadeDuration;
   addRunner(runner);
