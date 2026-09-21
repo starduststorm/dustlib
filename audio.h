@@ -216,6 +216,7 @@ class FFTProcessing {
   BaselineStepper spectrumAccumStepper;
   int subscribeCount{0};
   bool initialized{false};
+  kiss_fftr_cfg fftCfg{NULL}; // kept for the life of the processor; allocating one recomputes the whole trig table
 public:
 
   FFTProcessing(AudioProcessing &audio, int numBins, int windowSize=DEFAULT_NSAMP) : audio(audio), numBins(numBins), windowSize(windowSize) { }
@@ -228,6 +229,7 @@ public:
     samples = new int16_t[windowSize]();
     readChunk = new int16_t[windowSize];
     getFFTBins(numBins, windowSize/2, fftBinSizes);
+    fftCfg = kiss_fftr_alloc(windowSize,false,0,0);
     if (hopSamples == 0) {
       hopSamples = windowSize/2; // 50% overlap: one transform per half-window of new audio
     }
@@ -244,6 +246,7 @@ public:
     delete [] readChunk;
     delete [] spectrum;
     delete [] spectrumAccum;
+    kiss_fft_free(fftCfg);
   }
 
   void subscribe() {
@@ -310,7 +313,6 @@ public:
 
     kiss_fft_scalar fft_in[windowSize];
     kiss_fft_cpx fft_out[windowSize];
-    kiss_fftr_cfg cfg = kiss_fftr_alloc(windowSize,false,0,0);
 
     int peak = audio.processAmplitude(samples, windowSize * sizeof(samples[0]));
 
@@ -321,7 +323,7 @@ public:
     for (int i = 0; i < windowSize; i++) { fft_in[i] = samples[i] - avg; }
     
     // compute fast fourier transform
-    kiss_fftr(cfg, fft_in, fft_out);
+    kiss_fftr(fftCfg, fft_in, fft_out);
     
     // any frequency bin over windowSize/2 is aliased (nyquist sampling theorum)
     const int accumSteps = (spectrumAccumSamples ? spectrumAccumStepper.steps(spectrumAccumBaselineMagic) : 0);
@@ -344,8 +346,6 @@ public:
         spectrumAccum[b] = (spectrumAccum[b] * spectrumAccumSamples + spectrum[b]) / (spectrumAccumSamples + 1);
       }
     }
-    kiss_fft_free(cfg);
-
     dataFrame.peak = peak;
     return dataFrame;
   }

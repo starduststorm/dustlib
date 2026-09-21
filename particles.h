@@ -238,6 +238,7 @@ private:
 
   unsigned long lastTick = 0;
   unsigned long lastParticleSpawn = 0;
+  std::vector<Edge> adjacencyScratch, allowedScratch; // reused between edgeCandidates calls to avoid heap churn on every particle move
   uint8_t fadeUpDistance = 0; // fade up n pixels ahead of particle motion
 
   PixelIndex spawnLocation() {
@@ -304,15 +305,13 @@ public:
     std::vector<Edge> nextEdges;
     switch (flowRule) {
       case priority: {
-        // fetch the priority levels separately so that we can fast-path out once we have a viable path after checking each level
-        std::vector<std::vector<Edge> > edgeCandidatesByPriority = { {}, {}, {}, {} };
-        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.first, requireExactEdgeTypeMatch, edgeCandidatesByPriority[0]);
-        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.second, requireExactEdgeTypeMatch, edgeCandidatesByPriority[1]);
-        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.third, requireExactEdgeTypeMatch, edgeCandidatesByPriority[2]);
-        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.fourth, requireExactEdgeTypeMatch, edgeCandidatesByPriority[3]);
-
-        for (auto &adj : edgeCandidatesByPriority) {
-          for (auto edge : adj) {
+        // fetch the priority levels one at a time so that we can fast-path out once we have a viable path after checking each level
+        const EdgeTypes priorityLevels[] = {particle.directions.edgeTypes.first, particle.directions.edgeTypes.second,
+                                            particle.directions.edgeTypes.third, particle.directions.edgeTypes.fourth};
+        for (EdgeTypes level : priorityLevels) {
+          adjacencyScratch.clear();
+          graph.getAdjacencies(particle.px, level, requireExactEdgeTypeMatch, adjacencyScratch);
+          for (Edge &edge : adjacencyScratch) {
             // logf("  checking adj %i->%i for edge types 0x%x...", (int)edge.from, (int)edge.to, (int)edge.types);
             if (isIndexAllowedForParticle(particle, edge.to)) {
               if (followContinueTo && edge.continueTo) {
@@ -335,15 +334,23 @@ public:
         }
         if (nextEdges.size() > 0) {
           // only ever follow one edge in priority mode, nextEdges should all be the same priority
-          return {nextEdges[random8()%nextEdges.size()]};
+          Edge chosen = nextEdges[random8()%nextEdges.size()];
+          nextEdges.assign(1, chosen);
+          return nextEdges;
         }
         break;
       }
       case random:
       case split: {
-        auto allAdj = graph.adjacencies(particle.px, particle.directions, requireExactEdgeTypeMatch);
-        std::vector<Edge> allowedEdges;
-        for (auto edge : allAdj) {
+        std::vector<Edge> &allAdj = adjacencyScratch;
+        std::vector<Edge> &allowedEdges = allowedScratch;
+        allAdj.clear();
+        allowedEdges.clear();
+        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.first,  requireExactEdgeTypeMatch, allAdj);
+        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.second, requireExactEdgeTypeMatch, allAdj);
+        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.third,  requireExactEdgeTypeMatch, allAdj);
+        graph.getAdjacencies(particle.px, particle.directions.edgeTypes.fourth, requireExactEdgeTypeMatch, allAdj);
+        for (Edge &edge : allAdj) {
           if (isIndexAllowedForParticle(particle, edge.to) && edge.types && !edge.continueTo) {
             allowedEdges.push_back(edge);
           }
@@ -384,13 +391,15 @@ private:
       killParticle(index);
       return false;
     } else {
-      std::set<PixelIndex> toVertexes; // dedupe
-      for (unsigned i = 0; i < nextEdges.size(); ++i) {
-        toVertexes.insert(nextEdges[i].to);
-      }
-      if (toVertexes.size() > 1) {
-        for (PixelIndex idx : toVertexes) {
-          splitParticle(particles[index], idx);
+      if (nextEdges.size() > 1) {
+        std::set<PixelIndex> toVertexes; // dedupe
+        for (unsigned i = 0; i < nextEdges.size(); ++i) {
+          toVertexes.insert(nextEdges[i].to);
+        }
+        if (toVertexes.size() > 1) {
+          for (PixelIndex idx : toVertexes) {
+            splitParticle(particles[index], idx);
+          }
         }
       }
       // logf("  flowing particle %i from %i to %i, directions quad = %i, %i, %i, %i", index, (int)particles[index].px, (int)nextEdges.front().to, (int)particles[index].directions.edgeTypes.first, (int)particles[index].directions.edgeTypes.second, (int)particles[index].directions.edgeTypes.third, (int)particles[index].directions.edgeTypes.fourth  );
@@ -446,6 +455,7 @@ public:
         }
         if (particles[i].speed == 0 && !particles[i].alive) { // dead and not moving
           eraseParticle(i);
+          continue;
         } else if (particles[i].speed != 0 && mils - particles[i].lastMove > 1000/particles[i].speed) {
           if (flowParticle(i)) { // possibly reallocates particles vector or destroys the particle
             if (mils - particles[i].lastMove > 2000/particles[i].speed) {
@@ -454,14 +464,23 @@ public:
               // This helps avoid time drift, which for some reason can make one device run consistently faster than another
               particles[i].lastMove += 1000/particles[i].speed;
             }
+          } else {
+            // the particle is dead or was dead already, and may have been erased
+            continue;
           }
         }
+        // integer form of the first loop test below; most frames a particle isn't due to move, so skip the soft-float math
+        unsigned long sinceMove = mils - particles[i].lastMove;
+        if (particles[i].speed == 0 || sinceMove * particles[i].speed <= 1000) {
+          continue;
+        }
         // floating point math to handle multiple moves in one frame
-        const float millisPerMove = 1000. / particles[i].speed;
+        // (elapsed is differenced as integers first; millis() itself exceeds float precision after a few hours of uptime)
+        const float millisPerMove = 1000.f / particles[i].speed;
         float moveAccum = 0;
         bool firstMove = true;
         bool particleAlive = true;
-        while (particleAlive && mils - (particles[i].lastMove + moveAccum) > millisPerMove) {
+        while (particleAlive && sinceMove - moveAccum > millisPerMove) {
           if (fadeUpDistance > 0 || !firstMove) {
             // moving multiple pixels in one frame or there are dim fadeup pixels to overdraw before moving on
             CRGB newColor = CRGB(particles[i].color).nscale8(particles[i].brightness);
@@ -473,7 +492,7 @@ public:
           moveAccum += millisPerMove;
         }
         if (particleAlive) {
-          particles[i].lastMove += moveAccum;
+          particles[i].lastMove += (unsigned long)moveAccum;
         }
       }
     }
