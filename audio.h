@@ -24,8 +24,17 @@ volatile int rawSamplesRead = 0;
 class AudioProcessing {
   int peakAccum = 0;
   BaselineStepper peakStepper;
+  int subscribeCount = 0;
+  int16_t window[DEFAULT_NSAMP] = {0}; // rolling window of the newest windowSize samples
+  int16_t readChunk[DEFAULT_NSAMP];    // scratch for one drain of the driver's buffer
+  uint32_t sampleCount = 0;            // samples ever shifted into the window
+protected:
+  virtual void startStreaming() { }
+  virtual void stopStreaming() { }
+  // driver-level read; returns bytes read. Clients don't call this, they call update() and share the window.
+  virtual size_t read(int16_t *buffer, size_t size) = 0;
 public:
-  int bufferSize;
+  static constexpr int windowSize = DEFAULT_NSAMP;
   int sampleRate;
 
   int ignoreSamples = 3; // ignore the first n samples of each read
@@ -34,9 +43,57 @@ public:
   
   AudioProcessing(int sampleRate) : sampleRate(sampleRate) { }
 
-  virtual void subscribe() = 0;
-  virtual void unsubscribe() = 0;
+  bool isStreaming() {
+    return (subscribeCount > 0);
+  }
 
+  void subscribe() {
+    if (subscribeCount++ == 0) {
+      startStreaming();
+    }
+  }
+
+  void unsubscribe() {
+    assert(subscribeCount > 0, "not subscribed");
+    if (--subscribeCount == 0) {
+      stopStreaming();
+    }
+  }
+
+  // Drain whatever the driver has produced into the tail of the window - call every frame or discard a few overloud frames when starting
+  void update() {
+    if (!isStreaming()) {
+      return;
+    }
+    int total = 0;
+    size_t bytesRead;
+    while (total < windowSize && (bytesRead = read(readChunk, sizeof(readChunk))) > 0) {
+      int nRead = bytesRead / sizeof(readChunk[0]);
+      int n = min(nRead, windowSize);
+      memmove(window, window + n, (windowSize - n) * sizeof(window[0]));
+      memcpy(window + windowSize - n, readChunk + (nRead - n), n * sizeof(window[0]));
+      processAmplitude(readChunk, bytesRead);
+      sampleCount += n;
+      total += n;
+    }
+  }
+
+  // the newest windowSize samples, as of the last update()
+  const int16_t *samples() {
+    return window;
+  }
+
+  // samples ever shifted into the window; clients diff this against their last read to see how much is new
+  uint32_t samplesSeen() {
+    return sampleCount;
+  }
+
+  // peak amplitude as of the last update()
+  int peakAmplitude() {
+    return peakAccum;
+  }
+
+private:
   int processAmplitude(int16_t *buffer, size_t size) {
     if (size > ignoreSamples) {
       int16_t min_sample = INT16_MAX;
@@ -54,36 +111,15 @@ public:
     }
     return peakAccum;
   }
-  virtual size_t read(int16_t *buffer, size_t size) = 0;
 };
 
 class DigitalAudioProcessing : public AudioProcessing {
-  int subscribeCount = 0;
 protected:
   int dataPin;
   int clockPin;
-  virtual void startStreaming() { }
-  virtual void stopStreaming() { }
 public:
   DigitalAudioProcessing(int dataPin, int clockPin, int sampleRate=DEFAULT_SAMPLE_RATE) 
     : AudioProcessing(sampleRate), dataPin(dataPin), clockPin(clockPin) {
-  }
-
-  bool isStreaming() {
-    return (subscribeCount > 0);
-  }
-
-  void subscribe() {
-    if (subscribeCount++ == 0) {
-      startStreaming();
-    }
-  }
-
-  void unsubscribe() {
-    assert(subscribeCount > 0, "not subscribed");
-    if (--subscribeCount == 0) {
-      stopStreaming();
-    }
   }
 
   virtual size_t read(int16_t *buffer, size_t size) = 0;
@@ -154,9 +190,6 @@ class ShimAudioProcessing : public AudioProcessing {
 public:
   ShimAudioProcessing(int sampleRate=DEFAULT_SAMPLE_RATE) : AudioProcessing(sampleRate) { }
 
-  virtual void subscribe() { }
-  virtual void unsubscribe() { }
-
   virtual size_t read(int16_t *buffer, size_t size) {
     size_t numSamples = size / sizeof(buffer[0]);
     for (size_t i = 0; i < numSamples; ++i) {
@@ -172,8 +205,12 @@ public:
 
 class AmplitudeReceiver {
   AudioProcessing &audio;
-  int16_t samples[DEFAULT_NSAMP];
+  BaselineStepper levelStepper;
+  int level = 0;
 public:
+  int levelSmoothing = 20; // in levelBaselineFPS steps; ambientLevel settles over a couple of seconds
+  static constexpr int levelBaselineFPS = 10;
+
   AmplitudeReceiver(AudioProcessing &audio) : audio(audio) {
     audio.subscribe();
   }
@@ -181,13 +218,19 @@ public:
     audio.unsubscribe();
   }
 
-  int amplitudeFrame(int smoothing=10) {
-    bzero(samples, DEFAULT_NSAMP * sizeof(samples[0]));
+  // peak amplitude of the newest audio; call it every frame to keep the source's window current
+  int amplitudeFrame() {
+    audio.update();
+    return audio.peakAmplitude();
+  }
 
-    int samplesRead = audio.read(samples, DEFAULT_NSAMP*sizeof(samples[0]));
-    int peak = audio.processAmplitude(samples, samplesRead);
-
-    return peak;
+  // amplitudeFrame smoothed slowly enough to stand in for how loud the room is; call it every frame
+  int ambientLevel() {
+    int peak = amplitudeFrame();
+    for (int k = levelStepper.steps(levelBaselineFPS); k > 0; --k) {
+      level = (levelSmoothing * level + peak) / (levelSmoothing + 1);
+    }
+    return level;
   }
 };
 
@@ -207,9 +250,7 @@ class FFTProcessing {
   int16_t *spectrum;
   int16_t *spectrumAccum;
   int spectrumAccumSamples{30};
-  int16_t *samples;      // rolling window of the newest windowSize samples
-  int16_t *readChunk;    // scratch for one drain of the driver's buffer
-  int newSamples{0};     // real audio shifted in since the last transform
+  uint32_t samplesSeen{0}; // audio.samplesSeen() as of the last transform
   AudioProcessing &audio;
   FFTFrame dataFrame{0};
   bool frameStale{true};
@@ -223,11 +264,10 @@ public:
 
   void initialize() {
     assert(fftBinSizes == NULL, "fft double initialize");
+    assert(windowSize <= AudioProcessing::windowSize, "fft window %i larger than audio window %i", windowSize, AudioProcessing::windowSize);
     fftBinSizes = new int[numBins];
     spectrum = new int16_t[numBins]();
     spectrumAccum = new int16_t[numBins]();
-    samples = new int16_t[windowSize]();
-    readChunk = new int16_t[windowSize];
     getFFTBins(numBins, windowSize/2, fftBinSizes);
     fftCfg = kiss_fftr_alloc(windowSize,false,0,0);
     if (hopSamples == 0) {
@@ -242,8 +282,6 @@ public:
 
   ~FFTProcessing() {
     delete [] fftBinSizes;
-    delete [] samples;
-    delete [] readChunk;
     delete [] spectrum;
     delete [] spectrumAccum;
     kiss_fft_free(fftCfg);
@@ -276,45 +314,24 @@ public:
     frameStale = true;
   }
 
-  // Drain whatever the mic has produced into the tail of the rolling window, oldest samples falling off
-  // the front. Returns how many real samples arrived. The PDM driver hands out one 32-sample chunk at a
-  // time and won't start another until this one is read, so most polls at video framerate get nothing.
-  int fillWindow() {
-    int total = 0;
-    size_t bytesRead;
-    while ((bytesRead = audio.read(readChunk, windowSize * sizeof(readChunk[0]))) > 0) {
-      int n = bytesRead / sizeof(readChunk[0]);
-      if (n >= windowSize) {
-        // we fell far enough behind that the whole window is replaced; keep only the newest samples
-        memcpy(samples, readChunk + (n - windowSize), windowSize * sizeof(samples[0]));
-        total = windowSize;
-        break;
-      }
-      memmove(samples, samples + n, (windowSize - n) * sizeof(samples[0]));
-      memcpy(samples + windowSize - n, readChunk, n * sizeof(samples[0]));
-      total += n;
-      if (total >= windowSize) break;
-    }
-    return min(total, windowSize);
-  }
-
   FFTFrame getDataFrame() {
     if (!initialized) {
       initialize();
     }
-    newSamples = min(newSamples + fillWindow(), windowSize);
+    audio.update();
 
     // frame is still the newest data we have
-    if (!frameStale || newSamples < hopSamples) {
+    if (!frameStale || audio.samplesSeen() - samplesSeen < hopSamples) {
       return dataFrame;
     }
     frameStale = false;
-    newSamples = 0;
+    samplesSeen = audio.samplesSeen();
 
     kiss_fft_scalar fft_in[windowSize];
     kiss_fft_cpx fft_out[windowSize];
 
-    int peak = audio.processAmplitude(samples, windowSize * sizeof(samples[0]));
+    // the newest windowSize samples of the shared window
+    const int16_t *samples = audio.samples() + (AudioProcessing::windowSize - windowSize);
 
     // fill fourier transform input while subtracting DC component
     int64_t sum = 0;
@@ -346,7 +363,7 @@ public:
         spectrumAccum[b] = (spectrumAccum[b] * spectrumAccumSamples + spectrum[b]) / (spectrumAccumSamples + 1);
       }
     }
-    dataFrame.peak = peak;
+    dataFrame.peak = audio.peakAmplitude();
     return dataFrame;
   }
 
