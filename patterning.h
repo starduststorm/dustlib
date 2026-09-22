@@ -155,10 +155,10 @@ public:
   int fftLevelThreshold{minFFTLevelThreshold};
   int autoGainAdjustmentInterval{600};
 
-  SoundPattern() : FFTReceiver(fftProcessing) { }
+  SoundPattern(FFTProcessing &fftProcessing) : FFTReceiver(fftProcessing) { }
 
   void autoGainUpdate() {
-    FFTFrame frame = fftProcessing.getDataFrame();
+    FFTFrame frame = receiverFftProcessing.getDataFrame();
     unsigned long mils = millis();
 
     int maxFrameValue = 0;

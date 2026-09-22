@@ -427,6 +427,7 @@ private:
 };
 
 class FFTReceiver {
+protected:
   FFTProcessing &receiverFftProcessing;
 public:
   FFTReceiver(FFTProcessing &fft) : receiverFftProcessing(fft) {
