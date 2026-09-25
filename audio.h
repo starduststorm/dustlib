@@ -154,21 +154,77 @@ public:
 };
 
 class AudioInputPDM : public DigitalAudioProcessing {
-  bool fixSelectHIGH;
+  // fixSelectHIGH drives the mic's SELECT pin (clockPin+1) HIGH
+  // If that causes silence (penta v2), the stream stops after ~200ms and we flip it back
+  enum class SelectState : uint8_t { Untouched, ProbingHigh, ProbingReleased, High, Released };
+  static constexpr unsigned long kProbeMs = 1000;
+  static constexpr unsigned long kFlatRunMs = 200;
+  SelectState selectState = SelectState::Untouched;
+  unsigned long probeStart = 0;
+  int16_t runValue = 0;
+  uint32_t runLength = 0;
+
+  void driveSelect(bool high, SelectState next) {
+    if (high) {
+      pinMode(clockPin+1, OUTPUT);
+      digitalWrite(clockPin+1, HIGH);
+    } else {
+      pinMode(clockPin+1, INPUT_PULLDOWN);
+    }
+    selectState = next;
+    probeStart = millis();
+    runLength = 0;
+  }
+
+  void probeSelect(const int16_t *buffer, size_t count) {
+    const uint32_t flatRun = (uint32_t)sampleRate * kFlatRunMs / 1000;
+    bool flat = false;
+    for (size_t i = 0; i < count && !flat; ++i) {
+      runLength = (runLength > 0 && buffer[i] == runValue) ? runLength + 1 : 1;
+      runValue = buffer[i];
+      flat = runLength >= flatRun;
+    }
+    if (!flat && millis() - probeStart < kProbeMs) {
+      return;
+    }
+    if (selectState == SelectState::ProbingHigh) {
+      if (flat) {
+        logf("mic: flat (%i) with SELECT HIGH, releasing SELECT", runValue);
+        driveSelect(false, SelectState::ProbingReleased);
+      } else {
+        selectState = SelectState::High;
+      }
+    } else if (flat) {
+      logf("mic: flat (%i) with SELECT released too, dead mic? SELECT back HIGH", runValue);
+      driveSelect(true, SelectState::High);
+    } else {
+      logf("mic: streaming with SELECT released");
+      selectState = SelectState::Released;
+    }
+  }
+
 public:
-  AudioInputPDM(int dataPin, int clockPin, bool fixSelectHIGH=false) : DigitalAudioProcessing(dataPin, clockPin), fixSelectHIGH(fixSelectHIGH) { }
+  AudioInputPDM(int dataPin, int clockPin, bool fixSelectHIGH=false)
+    : DigitalAudioProcessing(dataPin, clockPin), selectState(fixSelectHIGH ? SelectState::ProbingHigh : SelectState::Untouched) { }
+
+  // true once the probe found SELECT HIGH silences this mic and released it
+  bool selectReleased() {
+    return selectState == SelectState::Released || selectState == SelectState::ProbingReleased;
+  }
 protected:
   virtual void startStreaming() {
     PDM.setDIN(dataPin);
     PDM.setCLK(clockPin);
 
-    if (fixSelectHIGH) {
+    switch (selectState) {
+      case SelectState::Untouched: break;
       // https://github.com/earlephilhower/arduino-pico/issues/3223
       // Our LMD4030 microphone must be sampled >15ns after the CLK 0->1 but before the CLK 0->1 transition
       // Workaround this unusual(?) timing by telling the mic to send data in the HIGH channel
       // framework-arduinopico PDM library only supports mono channel anyway
-      pinMode(clockPin+1, OUTPUT);
-      digitalWrite(clockPin+1, HIGH);
+      case SelectState::ProbingHigh: case SelectState::ProbingReleased: driveSelect(true, SelectState::ProbingHigh); break;
+      case SelectState::High: driveSelect(true, SelectState::High); break;
+      case SelectState::Released: driveSelect(false, SelectState::Released); break;
     }
 
     assert(1 == PDM.begin(1, sampleRate), "Failed to initialize PDM device");
@@ -181,6 +237,9 @@ public:
     assert(isStreaming(), "can't read unless streaming");
     int hasBytes = PDM.available();
     size_t bytesRead = PDM.read(buffer, min(hasBytes, size));
+    if (selectState == SelectState::ProbingHigh || selectState == SelectState::ProbingReleased) {
+      probeSelect(buffer, bytesRead / sizeof(buffer[0]));
+    }
     return bytesRead;
   }
 };
