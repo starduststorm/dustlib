@@ -183,6 +183,7 @@ public:
    bool overDrawing = litCount > 95*LED_COUNT/100;
    bool underDrawing = litCount < 2*LED_COUNT/10;
    int adjustmentInterval = (runTime() > 3000 ? autoGainAdjustmentInterval : autoGainAdjustmentInterval/6);
+   fftLevelThreshold = max(minFFTLevelThreshold, fftLevelThreshold);
    if ((overDrawing || fftLevelThreshold < avgFrameValue) && mils - lastLevelThreshChange > adjustmentInterval) {
       fftLevelThreshold++;
       if (overDrawing) {
@@ -507,8 +508,8 @@ public:
 
   CrossfadingPatternRunner(PatternManager &manager, int startPatternIndex, int groupID=0) : IndexedPatternRunner(manager, startPatternIndex, groupID) { }
 
-  virtual void setAlpha(uint8_t alpha) {
-    PatternRunner::setAlpha(alpha);
+  virtual void setAlpha(uint8_t alpha, bool animated=true) {
+    PatternRunner::setAlpha(alpha, animated);
     if (crossfadePattern) {
       crossfadePattern->setAlpha(alpha, true, 4);
     }
@@ -516,6 +517,12 @@ public:
 
   virtual void runPatternAtIndex(unsigned int index) {
     if (crossfadeDuration == 0) {
+      if (crossfadePattern) {
+        // drop an in-progress crossfade, or it takes over from the pattern we're about to start once it finishes
+        crossfadePattern->stop();
+        delete crossfadePattern;
+        crossfadePattern = NULL;
+      }
       IndexedPatternRunner::runPatternAtIndex(index);
     } else if (manager.isValidGroupIndex(index, groupID)) {
       patternIndex = index;
